@@ -8,6 +8,21 @@ if(WIN32)
     "$ENV{VULKAN_SDK}/Lib/$<IF:$<CONFIG:Debug>,shaderc_combinedd,shaderc_combined>.lib")
   # the SDK ships the libraries without their PDBs
   target_link_options(mh3u_latte INTERFACE /ignore:4099)
+elseif(MH3U_SHADERC_SOURCE)
+  # shaderc from source (google/shaderc with its dependencies synced: utils/git-sync-deps) - Android, where there is
+  # no SDK library; scripts/build-android.sh fetches it
+  set(SHADERC_SKIP_TESTS ON CACHE BOOL "" FORCE)
+  set(SHADERC_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
+  set(SHADERC_SKIP_COPYRIGHT_CHECK ON CACHE BOOL "" FORCE)
+  set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
+  set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
+  set(SPIRV_HEADERS_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
+  set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+  set(ENABLE_CTEST OFF CACHE BOOL "" FORCE)
+  # (install rules stay on: shaderc turns glslang's on regardless, and its export set needs SPIRV-Tools' too)
+  add_subdirectory("${MH3U_SHADERC_SOURCE}" "${CMAKE_BINARY_DIR}/shaderc" EXCLUDE_FROM_ALL SYSTEM)
+  target_include_directories(mh3u_latte PUBLIC . ${CMAKE_SOURCE_DIR}/runtime/gfx)
+  target_link_libraries(mh3u_latte PRIVATE shaderc)
 elseif(DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/lib/libshaderc_combined.a")
   # the LunarG Linux SDK (x86_64/{include,lib}): shaderc with glslang and SPIRV-Tools in one static library
   target_include_directories(mh3u_latte PUBLIC . ${CMAKE_SOURCE_DIR}/runtime/gfx PRIVATE "$ENV{VULKAN_SDK}/include")
@@ -23,9 +38,13 @@ else()
   target_link_libraries(mh3u_latte PRIVATE PkgConfig::SHADERC)
 endif()
 
-add_executable(shaderc-latte main.cpp)
-target_link_libraries(shaderc-latte PRIVATE mh3u_latte mh3u_fs)
+if(NOT ANDROID)  # a command-line tool: not on a phone
+  add_executable(shaderc-latte main.cpp)
+  target_link_libraries(shaderc-latte PRIVATE mh3u_latte mh3u_fs)
+endif()
 
 # Decodes every shader in the user's dump; skipped (77) without it.
-add_test(NAME latte_decode COMMAND shaderc-latte "${MH3U_REPO_ROOT}/extracted")
-set_tests_properties(latte_decode PROPERTIES SKIP_RETURN_CODE 77)
+if(NOT ANDROID)
+  add_test(NAME latte_decode COMMAND shaderc-latte "${MH3U_REPO_ROOT}/extracted")
+  set_tests_properties(latte_decode PROPERTIES SKIP_RETURN_CODE 77)
+endif()

@@ -569,6 +569,8 @@ void handle_event(const void* ev) {
                 else g_pointer_down.erase(src);
                 break;
             }
+            // a touch screen's taps (phones): they point at menus above, but never capture the mouse or press game buttons
+            if (e.button.which == SDL_TOUCH_MOUSEID) break;
             if (down && !g_captured && e.button.button == SDL_BUTTON_LEFT) {
                 capture(true);  // the click that captures the mouse is not passed to the game
                 break;
@@ -582,7 +584,7 @@ void handle_event(const void* ev) {
         }
         case SDL_EVENT_MOUSE_MOTION:
             g_ptr_x = e.motion.x, g_ptr_y = e.motion.y;
-            if (g_captured) {
+            if (g_captured && e.motion.which != SDL_TOUCH_MOUSEID) {
                 g_mouse_dx += e.motion.xrel;
                 g_mouse_dy += e.motion.yrel;
             }

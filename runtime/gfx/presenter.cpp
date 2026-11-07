@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
+#include <condition_variable>
 #include <mutex>
 #include <vector>
 
@@ -52,6 +53,12 @@ struct Presenter::Impl {
     std::atomic<bool> sharp{false};  // nearest-pixel scaling of the game image (setting "scaling")
     int mode = 0, fullscreen_mode = 1;  // display mode now, and the one F11 returns to (main thread)
     bool needs_recreate = false;
+    // Android: the app went to the background - its window (and so the surface) is gone until it comes back
+    bool paused = false;
+    std::condition_variable resumed;
+    void enter_background();
+    void enter_foreground();
+    void lose_surface();  // swapchain and surface destroyed (m held); present() makes them again
     // present_image: host staging buffer -> source image -> scaled blit into the swapchain image
     VkBuffer staging = VK_NULL_HANDLE;
     VkDeviceMemory staging_mem = VK_NULL_HANDLE, src_mem = VK_NULL_HANDLE;
@@ -143,6 +150,34 @@ void Presenter::Impl::destroy_swapchain() {
     images.clear();
     if (swapchain) vkDestroySwapchainKHR(device, swapchain, nullptr);
     swapchain = VK_NULL_HANDLE;
+}
+
+void Presenter::Impl::lose_surface() {
+    if (device) vkDeviceWaitIdle(device);
+    destroy_swapchain();
+    if (surface) vkDestroySurfaceKHR(instance, surface, nullptr);
+    surface = VK_NULL_HANDLE;
+}
+
+// Android takes the window away while the app is in the background: the surface goes before it does (the event is
+// sent synchronously, from an event watch), presenting stops, and the game thread waits in wait_while_paused().
+void Presenter::Impl::enter_background() {
+    std::lock_guard g(m);
+    paused = true;
+    lose_surface();
+}
+
+void Presenter::Impl::enter_foreground() {
+    {
+        std::lock_guard g(m);
+        paused = false;
+    }
+    resumed.notify_all();
+}
+
+void Presenter::wait_while_paused() {
+    std::unique_lock lk(impl_->m);
+    impl_->resumed.wait(lk, [&] { return !impl_->paused; });
 }
 
 bool Presenter::Impl::create_swapchain(std::string& err) {
@@ -256,10 +291,16 @@ bool Presenter::init(const std::string& title, int width, int height, bool headl
         // window/taskbar icon: the executable's icon resource 1 (runtime/boot/mh3u.rc)
         SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "1");
         SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "1");
+        SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");  // Android: back opens the settings instead of leaving
+        SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
         if (!SDL_Init(SDL_INIT_VIDEO)) return fail(std::string("SDL_Init: ") + SDL_GetError());
         // high pixel density: on a scaled desktop (Wayland at 150 % / 200 %) the swapchain has the screen's real pixels;
         // without it the picture was drawn at the logical size and stretched by the compositor, blurry (issue #13)
+#ifdef __ANDROID__
+        d.window = SDL_CreateWindow(title.c_str(), width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+#else
         d.window = SDL_CreateWindow(title.c_str(), width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+#endif
         if (!d.window) return fail(std::string("SDL_CreateWindow: ") + SDL_GetError());
         SDL_SetWindowMinimumSize(d.window, 960, 540);  // the launcher's layout needs at least this much
         ext = SDL_Vulkan_GetInstanceExtensions(&n_ext);
@@ -283,6 +324,15 @@ bool Presenter::init(const std::string& title, int width, int height, bool headl
     if (vkCreateInstance(&ici, nullptr, &d.instance) != VK_SUCCESS) return fail("vkCreateInstance failed");
     if (!headless && !SDL_Vulkan_CreateSurface(d.window, d.instance, nullptr, &d.surface))
         return fail(std::string("SDL_Vulkan_CreateSurface: ") + SDL_GetError());
+    if (!headless)  // background / foreground (Android, iOS): must be handled while the event is sent
+        SDL_AddEventWatch(
+            [](void* user, SDL_Event* e) {
+                auto* impl = static_cast<Impl*>(user);
+                if (e->type == SDL_EVENT_WILL_ENTER_BACKGROUND) impl->enter_background();
+                else if (e->type == SDL_EVENT_DID_ENTER_FOREGROUND) impl->enter_foreground();
+                return true;
+            },
+            &d);
 
     // physical device: one with a queue family that does graphics and presents to the window; prefer discrete
     uint32_t n = 0;
@@ -330,8 +380,8 @@ bool Presenter::init(const std::string& title, int width, int height, bool headl
     if (!headless) dev_ext.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     // Vulkan 1.3 has dynamic rendering, synchronization2 and shader demote in core. Older drivers (Vulkan 1.1 / 1.2,
     // e.g. AMD's last Windows driver for GCN 1 Radeons) get them from extensions; dynamic rendering and
-    // synchronization2 are emulated where missing (vk_compat.h). Shader demote is required: the translated pixel
-    // shaders' alpha test and kill use it. MH3U_VK_LEGACY=1 takes the old-driver path on a new GPU (no dynamic
+    // synchronization2 are emulated where missing (vk_compat.h). The translated pixel shaders' alpha test and kill
+    // use shader demote; without it (many phone drivers) they are translated with discard. MH3U_VK_LEGACY=1 takes the old-driver path on a new GPU (no dynamic
     // rendering, no synchronization2) for testing.
     char* legacy_env = nullptr;
     size_t legacy_len = 0;
@@ -367,7 +417,9 @@ bool Presenter::init(const std::string& title, int width, int height, bool headl
             f13.shaderDemoteToHelperInvocation = VK_TRUE;
             link(f13);
         } else {
-            return fail("device lacks VK_EXT_shader_demote_to_helper_invocation");
+            // many phone drivers (Vulkan 1.1): the translated shaders then use discard instead (translate.h, Target)
+            d.ctx.shader_demote = false;
+            std::fprintf(stderr, "presenter: no VK_EXT_shader_demote_to_helper_invocation - shaders use discard\n");
         }
         dynamic_rendering = !legacy && has(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
         if (dynamic_rendering) {
@@ -588,7 +640,14 @@ void barrier(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageLayo
 void Presenter::present(const uint8_t* rgba, VkImage image, uint32_t width, uint32_t height, float r, float g, float b) {
     Impl& d = *impl_;
     std::lock_guard lock(d.m);
-    if (!d.device || !d.surface) return;
+    if (!d.device || d.paused) return;
+    if (!d.surface) {  // lost (background, SURFACE_LOST): a new one for the window as it is now
+        if (!d.window || !SDL_Vulkan_CreateSurface(d.window, d.instance, nullptr, &d.surface)) {
+            d.surface = VK_NULL_HANDLE;
+            return;
+        }
+        d.needs_recreate = true;
+    }
     const uint32_t s = d.slot;
     // the CPU-pixels path reuses one staging image: every present that may still read it must be done
     if (rgba) vkWaitForFences(d.device, Impl::kInFlight, d.fence, VK_TRUE, UINT64_MAX);
@@ -606,6 +665,10 @@ void Presenter::present(const uint8_t* rgba, VkImage image, uint32_t width, uint
     VkResult res = vkAcquireNextImageKHR(d.device, d.swapchain, UINT64_MAX, d.acquired[s], VK_NULL_HANDLE, &index);
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
         d.needs_recreate = true;
+        return;
+    }
+    if (res == VK_ERROR_SURFACE_LOST_KHR) {
+        d.lose_surface();
         return;
     }
     VkCommandBuffer cmd = d.cmd[s];
@@ -731,6 +794,7 @@ void Presenter::present(const uint8_t* rgba, VkImage image, uint32_t width, uint
     pi.pImageIndices = &index;
     res = vkQueuePresentKHR(d.queue, &pi);
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) d.needs_recreate = true;
+    if (res == VK_ERROR_SURFACE_LOST_KHR) d.lose_surface();
     d.slot = (s + 1) % Impl::kInFlight;
     ++d.frames;
     if (cap_buf) {  // a 32-bit BMP (the swapchain is BGRA: the bytes go straight in, rows bottom-up)

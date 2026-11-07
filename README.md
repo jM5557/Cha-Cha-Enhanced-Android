@@ -113,6 +113,9 @@ These are part of the game and always on.
    checks that it is the US v32 executable and reads the files where they are; nothing is copied.
 3. **Wait a few seconds** while the game's shaders are translated for your PC. This happens once.
 
+**Android** (arm64, Android 10+, with a controller): there is no ready-made APK, as the game code comes from your own
+executable; build one with `scripts/build-android.sh` ([Building from source](#android)).
+
 Your **data folder** keeps settings, saves, caches, quests and texture packs:
 
 | | Data folder |
@@ -234,6 +237,19 @@ scripts/package-appimage.sh                         # build/release/Cha-Cha-<ver
 
 More: [docs/linux.md](docs/linux.md).
 
+### Android
+
+An arm64 APK for Android 10+ (Vulkan 1.1, a controller), built on Linux. The SDK, NDK, shaderc and FFmpeg are
+fetched by the script:
+
+```bash
+scripts/install-deps-linux.sh --android
+scripts/build-android.sh --wua ~/path/to/mh3u.wua   # build/release/Cha-Cha-<version>-arm64.apk; --install over USB
+```
+
+Put your `.wua` in the app's `game/` folder or in Download (with All files access). Cheats, texture packs and quests
+work as on the PC. Details, the data folder and what differs on a phone: [docs/android.md](docs/android.md).
+
 ### Windows
 
 1. Put your dump at `game/mh3u.wua` ([game/README.md](game/README.md)), then run
@@ -262,6 +278,7 @@ code, translated from your executable at build time.
 | `config/` | Target hashes, symbol map, function list, known structures | yes |
 | `recomp/` | The recompiler; `recomp/out/` is the generated C++ | source only |
 | `runtime/` | The PC layer replacing the Wii U system: `os`, `gfx` (GX2 on Vulkan), `audio`, `input`, `fs`, `boot`, `cheats` | yes |
+| `android/` | The Android app's manifest, resources and activity (`scripts/build-android.sh`) | yes |
 | `src/` | Hand-written game code: item sets, hold to gather, HP scaling… | yes |
 | `assets/cheats/` | The bundled MH3U US cheat file (jM5557's, written to the data folder on the first start) | yes |
 | `tools/`, `scripts/`, `ghidra/` | Shader translator, helper scripts, reverse-engineering scripts | yes |

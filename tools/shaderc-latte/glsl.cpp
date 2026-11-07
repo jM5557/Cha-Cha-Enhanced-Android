@@ -1,4 +1,5 @@
 #include "glsl.h"
+#include "translate.h"
 
 #include <algorithm>
 #include <cmath>
@@ -827,7 +828,8 @@ private:
         static const char* kStage[] = {"vertex", "pixel", "geometry"};
         const uint32_t set = sh_.stage == Stage::Vertex ? abi::kSetVertex : sh_.stage == Stage::Pixel ? abi::kSetPixel : abi::kSetGeometry;
         std::string s = "#version 450\n";
-        if (sh_.stage == Stage::Pixel) s += "#extension GL_EXT_demote_to_helper_invocation : require\n";
+        if (sh_.stage == Stage::Pixel)  // without demote (phone drivers): plain discard (translate.h, Target)
+            s += target().demote ? "#extension GL_EXT_demote_to_helper_invocation : require\n" : "#define demote discard\n";
         s += fmt("// Latte %s shader %016llx, translated by shaderc-latte\n\n", kStage[int(sh_.stage)],
                  static_cast<unsigned long long>(sh_.key()));
         for (const auto& [b, n] : ubo_vec4s_) {

@@ -314,9 +314,11 @@ bool emit_insn(const Insn& in, uint32_t pc, Ctx& cx, std::string& out) {
             else if (in.spr >= 912 && in.spr <= 919) o << "ctx.gqr[" << in.spr - 912 << "] = " << R(d) << ";";
             else return reject("unsupported: mtspr", std::to_string(in.spr));
             break;
-        // ---- cache / ordering: no effect on the host, except dcbz which zeroes a 32-byte block
-        case Op::sync: case Op::isync: case Op::eieio: case Op::dcbf: case Op::dcbst: case Op::dcbt: case Op::dcbtst:
-        case Op::dcbi: case Op::icbi:
+        // ---- ordering: a fence on weakly ordered hosts (ppc::memory_barrier); cache ops: no effect, except dcbz
+        case Op::sync: case Op::isync: case Op::eieio:
+            o << "ppc::memory_barrier();";
+            break;
+        case Op::dcbf: case Op::dcbst: case Op::dcbt: case Op::dcbtst: case Op::dcbi: case Op::icbi:
             o << "/* no-op on host */";
             break;
         case Op::dcbz: case Op::dcbz_l:

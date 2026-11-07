@@ -997,6 +997,7 @@ GX2_FUNC(GX2SwapScanBuffers) {
             std::this_thread::sleep_until(next_flip);
         }
     } pace;
+    if (rt().presenter) rt().presenter->wait_while_paused();  // Android: the game waits while the app is in the background
     ++g_swap_count;
     ++g_timestamp;
     const uint32_t n = ++rt().frames;

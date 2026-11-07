@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "bc_decode.h"
 #include "guest_memory.h"
 #include "gx2_surface.h"
 #include "presenter.h"
@@ -101,7 +102,25 @@ struct FormatDesc {
     bool block = false;
     VkComponentMapping swizzle{VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
                                VK_COMPONENT_SWIZZLE_IDENTITY};
+    // a BC format the GPU cannot sample (phones): decoded on upload (bc_decode.h) into `vk` (RGBA8 / R8 / RG8); `source`
+    // is the BC format itself (texture dumps keep it). bytes / block still describe the guest's blocks.
+    uint8_t decode = 0;  // bc::decode kind, 0 = none
+    bool decode_snorm = false;
+    VkFormat source = VK_FORMAT_UNDEFINED;
 };
+
+// The host format for a BC texture on a GPU without BC support
+FormatDesc bc_fallback(FormatDesc fd, uint32_t f) {
+    const uint32_t kind = (f & 0x3F) - 0x30, k = f & 0xF00;
+    const bool srgb = k == 0x400, snorm = k == 0x200;
+    fd.source = fd.vk;
+    fd.decode = static_cast<uint8_t>(kind);
+    fd.decode_snorm = snorm;
+    fd.vk = kind <= 3 ? (srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM)
+            : kind == 4 ? (snorm ? VK_FORMAT_R8_SNORM : VK_FORMAT_R8_UNORM)
+                        : (snorm ? VK_FORMAT_R8G8_SNORM : VK_FORMAT_R8G8_UNORM);
+    return fd;
+}
 
 // GX2SurfaceFormat: low 6 bits element type, 0x100 UINT, 0x200 SNORM, 0x300 SINT, 0x400 SRGB, 0x800 FLOAT.
 FormatDesc color_format(uint32_t f) {
@@ -568,6 +587,7 @@ private:
     std::set<uint64_t> dumped_;
     std::atomic<bool> want_packs_{true};
     uint64_t n_replaced_ = 0;
+    bool bc_note_ = false;  // logged that BC textures are decoded on the CPU
     std::atomic<uint64_t> n_dumped_{0};
     std::atomic<bool> want_dump_{false};
     bool dumping_ = false;  // this frame's (want_dump_; switching it on re-checks every cached texture)
@@ -1106,7 +1126,7 @@ void VkRenderer::upload_surface(Image& img, const GuestSurface& s, const FormatD
         for (uint32_t layer = 0; layer < layers; ++layer) {
             addrlib::Level l;
             if (!addrlib::level_layout(d, s.image, s.mipmaps, level, layer, l) || uint64_t{l.base} + l.span > (uint64_t{1} << 32)) return;
-            total += size_t{l.width} * l.height * l.bytes;
+            total += fd.decode ? size_t{l.width} * 4 * l.height * 4 * bc::pixel_bytes(fd.decode) : size_t{l.width} * l.height * l.bytes;
             lv.push_back(l);
         }
     const Alloc a = alloc(std::max<size_t>(total, 16), 16);
@@ -1120,7 +1140,9 @@ void VkRenderer::upload_surface(Image& img, const GuestSurface& s, const FormatD
             const uint8_t* src = base_ + l.base;
             const uint32_t* off = l.offsets->data();
             const size_t n = l.offsets->size();
-            uint8_t* dst = a.ptr + at;
+            std::vector<uint8_t> blocks;  // BC without GPU support: the detiled blocks, decoded into the staging memory
+            if (fd.decode) blocks.resize(n * l.bytes);
+            uint8_t* dst = fd.decode ? blocks.data() : a.ptr + at;
             if (l.bytes == 4) {
                 uint32_t* d32 = reinterpret_cast<uint32_t*>(dst);
                 for (size_t i = 0; i < n; ++i) std::memcpy(&d32[i], src + off[i], 4);
@@ -1131,11 +1153,16 @@ void VkRenderer::upload_surface(Image& img, const GuestSurface& s, const FormatD
                 c.bufferRowLength = fd.block ? l.width * 4 : l.width;
                 c.bufferImageHeight = img.type == VK_IMAGE_TYPE_1D ? 0 : fd.block ? l.height * 4 : l.height;
                 if (level == 0 && level0) {
-                    level0->assign(dst, dst + n * l.bytes);
+                    level0->assign(dst, dst + n * l.bytes);  // the guest's blocks (dumps keep the BC format)
                     if (row_elements) *row_elements = l.width;
                 }
             }
-            at += n * l.bytes;
+            if (fd.decode) {
+                bc::decode(fd.decode, fd.decode_snorm, blocks.data(), l.width, l.height, a.ptr + at);
+                at += size_t{l.width} * 4 * l.height * 4 * bc::pixel_bytes(fd.decode);
+            } else {
+                at += n * l.bytes;
+            }
         }
         c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, layers};
         c.imageExtent = {std::max(1u, img.width >> level), std::max(1u, img.height >> level), 1};
@@ -1400,7 +1427,7 @@ void VkRenderer::replace_texture(Image& img, const GuestSurface& s, const Format
     const uint64_t hash = hashable ? texpack::content_hash(raw, static_cast<uint32_t>(image_bytes), s.width * s.height, s.format) : 0;
     img.filter = hashable ? static_cast<uint8_t>(packs_.filter(hash, raw)) : 0;
     if (dumping_ && !level0.empty()) {
-        const uint32_t dxgi = dump_dxgi(fd.vk);
+        const uint32_t dxgi = dump_dxgi(fd.decode ? fd.source : fd.vk);
         const uint32_t crc = hashable ? 0 : texpack::crc32(base_ + s.image, image_bytes);
         const uint64_t k = hashable ? hash : (uint64_t{s.width} << 48 | uint64_t{s.height} << 32 | crc);
         if (dxgi && dumped_.insert(k).second) {
@@ -1439,7 +1466,32 @@ void VkRenderer::replace_texture(Image& img, const GuestSurface& s, const Format
         dds.data.insert(dds.data.end(), m.data.begin(), m.data.begin() + static_cast<std::ptrdiff_t>(texpack::level_bytes(m.dxgi, m.width, m.height)));
         ++dds.levels;
     }
-    const VkFormat vf = dxgi_format(dds.dxgi, (s.format & 0x400) != 0);  // the game's sRGB-ness, whatever the file says
+    VkFormat vf = dxgi_format(dds.dxgi, (s.format & 0x400) != 0);  // the game's sRGB-ness, whatever the file says
+    // a BC1-BC5 file on a GPU without BC support (phones): decoded here, as the game's own BC textures are
+    if (vf != VK_FORMAT_UNDEFINED && !(features(vf) & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
+        const int kind = dds.dxgi == 71 || dds.dxgi == 72 ? 1 : dds.dxgi == 74 || dds.dxgi == 75 ? 2 : dds.dxgi == 77 || dds.dxgi == 78 ? 3
+                         : dds.dxgi == 80 || dds.dxgi == 81 ? 4 : dds.dxgi == 83 || dds.dxgi == 84 ? 5 : 0;
+        if (kind) {
+            const bool snorm = dds.dxgi == 81 || dds.dxgi == 84, srgb = (s.format & 0x400) != 0;
+            std::vector<uint8_t> px;
+            std::vector<size_t> offs;
+            for (uint32_t level = 0; level < dds.levels; ++level) {
+                const uint32_t w = std::max(1u, dds.width >> level), h = std::max(1u, dds.height >> level);
+                const uint32_t bw = (w + 3) / 4, bh = (h + 3) / 4;
+                std::vector<uint8_t> full(size_t{bw} * 4 * bh * 4 * bc::pixel_bytes(kind));
+                bc::decode(kind, snorm, dds.data.data() + dds.offsets[level], bw, bh, full.data());
+                offs.push_back(px.size());
+                const size_t row = size_t{w} * bc::pixel_bytes(kind), full_row = size_t{bw} * 4 * bc::pixel_bytes(kind);
+                for (uint32_t y = 0; y < h; ++y) px.insert(px.end(), full.begin() + static_cast<std::ptrdiff_t>(y * full_row),
+                                                           full.begin() + static_cast<std::ptrdiff_t>(y * full_row + row));
+            }
+            dds.data = std::move(px);
+            dds.offsets = std::move(offs);
+            vf = kind <= 3 ? (srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM)
+                 : kind == 4 ? (snorm ? VK_FORMAT_R8_SNORM : VK_FORMAT_R8_UNORM)
+                             : (snorm ? VK_FORMAT_R8G8_SNORM : VK_FORMAT_R8G8_UNORM);
+        }
+    }
     if (vf == VK_FORMAT_UNDEFINED || !(features(vf) & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
         warn(file->filename().string() + ": DDS format unsupported on this GPU");
         return;
@@ -1477,7 +1529,14 @@ Image* VkRenderer::texture(const TextureBinding& t, uint32_t sampler_type) {
         if (sampler_type == 6) return img.aspect & VK_IMAGE_ASPECT_DEPTH_BIT ? &img : depth_alias(img);
         return &img;
     }
-    const FormatDesc fd = color_format(s.format);
+    FormatDesc fd = color_format(s.format);
+    if (fd.block && fd.vk != VK_FORMAT_UNDEFINED && !(features(fd.vk) & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
+        fd = bc_fallback(fd, s.format);  // no BC on this GPU (phones): decoded on upload
+        if (!bc_note_) {
+            bc_note_ = true;
+            std::printf("renderer: the GPU has no BC texture support - BC textures are decoded on the CPU\n");
+        }
+    }
     if (fd.vk == VK_FORMAT_UNDEFINED || !(features(fd.vk) & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
         char w[64];
         std::snprintf(w, sizeof w, "texture format 0x%03X unsupported", s.format);

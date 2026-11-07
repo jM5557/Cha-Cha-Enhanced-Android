@@ -27,6 +27,7 @@ struct VulkanContext {
     bool depth_range_unrestricted = false;  // VK_EXT_depth_range_unrestricted (GX2's -1..1 viewport depth range)
     bool depth_bias_clamp = false;          // VkPhysicalDeviceFeatures::depthBiasClamp (GX2 polygon offset clamp)
     uint32_t api_version = 0;         // the device's Vulkan version (VkPhysicalDeviceProperties::apiVersion)
+    bool shader_demote = true;        // shader demote to helper invocation (else the shaders use discard)
 };
 
 class Presenter {
@@ -68,6 +69,8 @@ public:
     void refresh_swapchain();
     // Whether an image (a game frame) was presented within the last `ms` milliseconds.
     bool showing_image(int ms) const;
+    // Blocks while the app is in the background (Android): the game thread waits here at every frame.
+    void wait_while_paused();
     // Writes the next presented frame, as shown (overlay included), to a BMP file. For checking the UI.
     void capture(const std::string& path);
 

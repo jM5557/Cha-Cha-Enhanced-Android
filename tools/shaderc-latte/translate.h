@@ -22,6 +22,16 @@ namespace mh3u::latte {
 // version are rebuilt on the next start.
 inline constexpr int kTranslatorVersion = 2;  // 2: SPIR-V 1.5 (Vulkan 1.2) for older GPUs
 
+// What the device's Vulkan driver takes (set before translating; part of the cache stamp, so a cache made for another
+// kind of device is redone). Defaults: desktop drivers. Phones often have Vulkan 1.1 drivers without
+// VK_EXT_shader_demote_to_helper_invocation.
+struct Target {
+    bool demote = true;      // kill / alpha test as `demote` (else `discard`)
+    bool vulkan_1_1 = false;  // SPIR-V 1.3 for Vulkan 1.1 drivers (else SPIR-V 1.5, Vulkan 1.2)
+};
+void set_target(const Target& t);
+const Target& target();
+
 // Game content access, relative to /vol/content ("nativeCafe/shaderPack.spkg").
 struct ContentReader {
     std::function<std::optional<std::vector<uint8_t>>(const std::string& path)> read;

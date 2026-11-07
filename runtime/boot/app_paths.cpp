@@ -1,4 +1,6 @@
 #include "app_paths.h"
+#include "android_platform.h"
+#include "android_paths.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -59,7 +61,10 @@ AppPaths find_paths(const stdfs::path& exe, const stdfs::path& data_override) {
     } else if (!p.repo.empty()) {
         p.data = p.repo;
     } else {
-#ifndef _WIN32
+#if defined(__ANDROID__)
+        // the app's external files folder (docs/android.md): no permission needed, visible to a PC over USB
+        p.data = android_data_folder();
+#elif !defined(_WIN32)
         // $XDG_DATA_HOME/Cha-Cha, by default ~/.local/share/Cha-Cha
         const char* xdg = std::getenv("XDG_DATA_HOME");
         const char* home = std::getenv("HOME");
@@ -153,6 +158,10 @@ bool save_settings(const AppPaths& p, const Settings& s) {
 
 std::vector<stdfs::path> repo_game_sources(const AppPaths& p) {
     std::vector<stdfs::path> out;
+#ifdef __ANDROID__
+    // no checkout on a phone: a dump in <data>/game, or in a common folder of the shared storage (docs/android.md)
+    return android_game_candidates(p.data);
+#endif
     if (p.repo.empty()) return out;
     std::error_code ec;
     if (stdfs::exists(p.repo / "extracted" / "0005000e10118300_v32", ec)) out.push_back(p.repo / "extracted");

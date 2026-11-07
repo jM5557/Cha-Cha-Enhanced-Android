@@ -1,4 +1,31 @@
 # Static recompiler: PPC (Espresso) -> C++. Phase 2, see docs/ROADMAP.md.
+# Configured on its own (cmake -S recomp), it builds the host tools a cross build runs (scripts/build-android.sh):
+# recomp_emit and emit_selftest_gen. A cross build (CMAKE_CROSSCOMPILING) takes them from MH3U_HOST_TOOLS.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  cmake_minimum_required(VERSION 3.25)
+  project(mh3u_recomp_host CXX)
+  set(CMAKE_CXX_STANDARD 20)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+  if(NOT MSVC)
+    add_compile_options(-fno-strict-aliasing -fwrapv)
+  endif()
+  get_filename_component(MH3U_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+  set(mh3u_recomp_out_default "${CMAKE_BINARY_DIR}/recomp-out")  # not into the source tree
+else()
+  set(mh3u_recomp_out_default "${CMAKE_SOURCE_DIR}/recomp/out")
+endif()
+set(MH3U_HOST_TOOLS "" CACHE PATH "Cross builds: folder with host builds of recomp_emit and emit_selftest_gen")
+macro(mh3u_host_tool name)
+  if(CMAKE_CROSSCOMPILING)
+    if(NOT EXISTS "${MH3U_HOST_TOOLS}/${name}")
+      message(FATAL_ERROR "cross build: ${name} is needed from a host build; set MH3U_HOST_TOOLS (scripts/build-android.sh does)")
+    endif()
+    add_executable(${name} IMPORTED GLOBAL)
+    set_target_properties(${name} PROPERTIES IMPORTED_LOCATION "${MH3U_HOST_TOOLS}/${name}")
+  else()
+    add_executable(${name} ${ARGN})
+  endif()
+endmacro()
 add_library(mh3u_recomp_core STATIC
   src/espresso.cpp
   src/espresso.h
@@ -34,8 +61,10 @@ add_test(NAME recomp_loader COMMAND loader_check "${MH3U_REPO_ROOT}")
 set_tests_properties(recomp_loader PROPERTIES SKIP_RETURN_CODE 77)
 
 # Emitter self-test: hand-encoded functions -> C++ at build time -> compiled and executed.
-add_executable(emit_selftest_gen tests/emit_selftest_gen.cpp)
-target_link_libraries(emit_selftest_gen PRIVATE mh3u_recomp_core)
+mh3u_host_tool(emit_selftest_gen tests/emit_selftest_gen.cpp)
+if(NOT CMAKE_CROSSCOMPILING)
+  target_link_libraries(emit_selftest_gen PRIVATE mh3u_recomp_core)
+endif()
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/selftest_funcs.cpp
   COMMAND emit_selftest_gen ${CMAKE_CURRENT_BINARY_DIR}/selftest_funcs.cpp
@@ -60,7 +89,7 @@ add_library(mh3u_recomp_support STATIC support/unimplemented.cpp support/indirec
 target_link_libraries(mh3u_recomp_support PUBLIC mh3u_ppc_context PRIVATE mh3u_recomp_core)  # the decoder
 
 # where the generated C++ goes (a Linux build in WSL keeps its own copy on the Linux disk)
-set(MH3U_RECOMP_OUT ${CMAKE_SOURCE_DIR}/recomp/out CACHE PATH "Generated game code")
+set(MH3U_RECOMP_OUT ${mh3u_recomp_out_default} CACHE PATH "Generated game code")
 set(MH3U_RECOMP_FILES 64)
 set(game_sources ${MH3U_RECOMP_OUT}/stubs.cpp ${MH3U_RECOMP_OUT}/imports.cpp ${MH3U_RECOMP_OUT}/function_table.cpp)
 math(EXPR last "${MH3U_RECOMP_FILES} - 1")
@@ -71,8 +100,10 @@ foreach(i RANGE ${last})
   endif()
   list(APPEND game_sources ${MH3U_RECOMP_OUT}/recomp_${i}.cpp)
 endforeach()
-add_executable(recomp_emit tools/recomp_emit.cpp)
-target_link_libraries(recomp_emit PRIVATE mh3u_recomp_core)
+mh3u_host_tool(recomp_emit tools/recomp_emit.cpp)
+if(NOT CMAKE_CROSSCOMPILING)
+  target_link_libraries(recomp_emit PRIVATE mh3u_recomp_core)
+endif()
 add_custom_command(
   OUTPUT ${game_sources} ${MH3U_RECOMP_OUT}/functions.h
   COMMAND recomp_emit ${MH3U_REPO_ROOT} ${MH3U_RECOMP_OUT} ${MH3U_RECOMP_FILES}

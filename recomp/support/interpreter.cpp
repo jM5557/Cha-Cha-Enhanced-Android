@@ -377,9 +377,9 @@ void interpret(Context& ctx, uint8_t* base, const uint32_t entry) {
                 } else if (in.spr >= 912 && in.spr <= 919) ctx.gqr[in.spr - 912] = r[d];
                 else unsupported(in, pc);
                 break;
-            // ---- cache / ordering
-            case Op::sync: case Op::isync: case Op::eieio: case Op::dcbf: case Op::dcbst: case Op::dcbt: case Op::dcbtst:
-            case Op::dcbi: case Op::icbi:
+            // ---- ordering / cache (as emitted)
+            case Op::sync: case Op::isync: case Op::eieio: memory_barrier(); break;
+            case Op::dcbf: case Op::dcbst: case Op::dcbt: case Op::dcbtst: case Op::dcbi: case Op::icbi:
                 break;
             case Op::dcbz: case Op::dcbz_l: std::memset(base + ((ra0 + r[b]) & ~31u), 0, 32); break;
             // ---- branches

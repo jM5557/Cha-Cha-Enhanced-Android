@@ -22,6 +22,13 @@ target_include_directories(mh3u_os PUBLIC .)
 target_link_libraries(mh3u_os PUBLIC mh3u_core mh3u_fs mh3u_ppc_context mh3u_recomp_support mh3u_input)
 if(WIN32)  # H.264: Media Foundation
   target_link_libraries(mh3u_os PRIVATE mfplat mfuuid wmcodecdspuuid ole32 oleaut32 strmiids)
+elseif(ANDROID)  # H.264: libavcodec built for Android (H.264 decoder only) by scripts/build-android.sh
+  set(MH3U_FFMPEG_DIR "" CACHE PATH "FFmpeg built for Android (include/, lib/libavcodec.a, lib/libavutil.a)")
+  if(NOT EXISTS "${MH3U_FFMPEG_DIR}/lib/libavcodec.a")
+    message(FATAL_ERROR "Android: set MH3U_FFMPEG_DIR to an FFmpeg build (scripts/build-android.sh makes one)")
+  endif()
+  target_include_directories(mh3u_os PRIVATE "${MH3U_FFMPEG_DIR}/include")
+  target_link_libraries(mh3u_os PRIVATE "${MH3U_FFMPEG_DIR}/lib/libavcodec.a" "${MH3U_FFMPEG_DIR}/lib/libavutil.a" m)
 else()     # H.264: FFmpeg's libavcodec
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(AVCODEC REQUIRED IMPORTED_TARGET libavcodec libavutil)

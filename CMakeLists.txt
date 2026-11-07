@@ -35,6 +35,11 @@ else()
   add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-include>" "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/runtime/core/win_compat.h>")
 endif()
 
+if(ANDROID)
+  # 16 KB-page devices (Android 15+) load only libraries aligned for them
+  add_link_options("-Wl,-z,max-page-size=16384")
+endif()
+
 enable_testing()
 
 # Repo root, so tests can find the user's extracted dump (extracted/ is gitignored).

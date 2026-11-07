@@ -9,6 +9,8 @@
 #include "guest_memory.h"
 #include "launcher_image.h"
 #include "mods_ini.h"
+#include "android_paths.h"
+#include "android_platform.h"
 #include "cheats.h"
 #include "texture_pack.h"
 #include "quests.h"
@@ -105,11 +107,21 @@ struct DialogResult {
     std::mutex m;
     std::vector<stdfs::path> picked;
     bool pending = false;
+    bool unreadable = false;  // Android: a pick from a provider with no file path (Recent, Downloads by id, cloud)
     static void SDLCALL callback(void* self, const char* const* files, int) {
         auto* d = static_cast<DialogResult*>(self);
         std::lock_guard g(d->m);
         d->pending = false;
+#ifdef __ANDROID__
+        // the system picker returns content:// URIs: the file behind them (read with All files access)
+        for (; files && *files; ++files) {
+            const stdfs::path p = path_from_android_uri(*files);
+            if (!p.empty()) d->picked.push_back(p);
+            else d->unreadable = true;
+        }
+#else
         for (; files && *files; ++files) d->picked.push_back(from_utf8(*files));
+#endif
     }
 };
 
@@ -117,7 +129,8 @@ struct DialogResult {
 // Bahnschrift is Windows' own and cannot be shipped: elsewhere the first of these common sans fonts that is installed
 stdfs::path windows_font(const char*) {
     std::error_code ec;
-    for (const char* f : {"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+    for (const char* f : {"/system/fonts/Roboto-Regular.ttf", "/system/fonts/NotoSans-Regular.ttf",  // Android
+                          "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/noto/NotoSans-Regular.ttf",
                           "/usr/share/fonts/google-noto/NotoSans-Regular.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                           "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
                           "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"})
@@ -579,6 +592,8 @@ struct Launcher::Impl {
     stdfs::path texture_dir() const { return paths.data / "texture_replacements"; }
     void refresh_textures();
     void draw_tab_textures(PanelLayout& p);
+    void pick_game(bool folder);                 // the system's file / folder picker (Android: asks for file access first)
+    void open_folder(const stdfs::path& dir);  // in the file manager (Android: says where it is)
     // MODS -> QUESTS: the library (<data>/quests), pack modes (<data>/mods.ini) and what the save has installed; re-read
     // (and packs applied) at start and whenever the panel opens or changes something
     quests::Library quest_library;
@@ -978,6 +993,11 @@ bool Launcher::frame(const LaunchState& st) {
 bool Launcher::Impl::draw(const LaunchState& st) {
     {  // newly chosen sources: tried together with the ones chosen before
         std::lock_guard g(dialog.m);
+        if (dialog.unreadable) {
+            dialog.unreadable = false;
+            error = "That file can't be opened by its path: choose it from the device's storage (Internal storage or the SD "
+                    "card in the picker's menu), not from Recent or Downloads.";
+        }
         if (!dialog.picked.empty()) {
             for (auto& p : dialog.picked)
                 if (std::find(sources.begin(), sources.end(), p) == sources.end()) sources.push_back(p);
@@ -1087,9 +1107,7 @@ void Launcher::Impl::draw_title(const LaunchState& st, ImVec2 size, bool& play, 
     if (game) {
         if (menu_item("PLAY", fonts.menu, menu_w, st.game_running && st.pipelines_ready)) play = true;
     } else if (menu_item("CHOOSE GAME", fonts.menu, menu_w, !dialog.pending)) {
-        static const SDL_DialogFileFilter filters[] = {{"Wii U archive (*.wua)", "wua"}, {"All files", "*"}};
-        dialog.pending = true;
-        SDL_ShowOpenFileDialog(&DialogResult::callback, &dialog, window, filters, 2, nullptr, false);
+        pick_game(false);
     }
     if (menu_item("SETTINGS", fonts.menu, menu_w)) {
         panel = Panel::Settings;
@@ -1443,18 +1461,22 @@ void Launcher::Impl::draw_tab_general(PanelLayout& p) {
     info_row(p, "Data folder", short_path(paths.data), "Where settings, saves, caches and input.ini are kept.");
     if (button_row(p, "Change game...", "Pick a .wua file. Takes effect on the next start once the game runs.", !dialog.pending)) {
         sources.clear();
-        static const SDL_DialogFileFilter filters[] = {{"Wii U archive (*.wua)", "wua"}, {"All files", "*"}};
-        dialog.pending = true;
-        SDL_ShowOpenFileDialog(&DialogResult::callback, &dialog, window, filters, 2, nullptr, false);
+        pick_game(false);
     }
-    if (button_row(p, "Choose a game folder...", "Pick a dumped game or update folder (code, content, meta).", !dialog.pending)) {
-        dialog.pending = true;
-        SDL_ShowOpenFolderDialog(&DialogResult::callback, &dialog, window, nullptr, false);
-    }
+    if (button_row(p, "Choose a game folder...", "Pick a dumped game or update folder (code, content, meta).", !dialog.pending))
+        pick_game(true);
     group_end(p);
     group_begin(p, "Startup");
     switch_row(p, "Skip boot notices", draft.skip_boot_notices,
                "Answers the controller notice and the create-save prompts before the title screen by itself.");
+    group_end(p);
+    group_begin(p, nullptr);  // the way to MODS without F2 (a controller, Android)
+    if (button_row(p, "Mods", "Quests, cheats and texture packs (F2).", true, "Open")) {
+        panel = Panel::Mods;
+        quests_stale = cheats_stale = tex_stale = true;
+        refocus = true;
+        g_sound.play(Sfx::Tab);
+    }
     group_end(p);
     if (mode == Mode::InGame) {  // issue #10: no way out but closing the window, which fullscreen hides
         group_begin(p, "Session");
@@ -1685,11 +1707,7 @@ void Launcher::Impl::draw_tab_quests(PanelLayout& p) {
                   "q_<number>.png and .txt for a picture and a description), or the quest1-quest4 files from a Wii U "
                   "save. A pack.json (name, author, description) and cover.png describe a pack.\n\n" + folder;
     group_begin(p, "Library");
-    if (button_row(p, "Quest folder", folder_desc.c_str(), true, "Open")) {
-        std::string url = "file:///" + folder;
-        std::replace(url.begin(), url.end(), '\\', '/');
-        SDL_OpenURL(url.c_str());
-    }
+    if (button_row(p, "Quest folder", folder_desc.c_str(), true, "Open")) open_folder(quest_dir());
     if (button_row(p, "Refresh", "Read the quest folder again (after adding files while Cha-Cha runs).", true, "Rescan")) {
         quests_stale = true;
         toast("Quest folder read again");
@@ -1783,6 +1801,38 @@ void Launcher::Impl::draw_tab_quests(PanelLayout& p) {
     quests_stale = true;  // re-read next frame (the rows above point into the lists)
 }
 
+void Launcher::Impl::pick_game(bool folder) {
+#ifdef __ANDROID__
+    if (!android_has_all_files_access()) {  // the picker's files are read by path: that needs All files access
+        android_request_all_files_access();
+        toast("Allow Cha-Cha to access all files, then choose the game again - or put your .wua in " + (paths.data / "game").string());
+        return;
+    }
+    dialog.pending = true;
+    if (folder) SDL_ShowOpenFolderDialog(&DialogResult::callback, &dialog, window, nullptr, false);
+    else SDL_ShowOpenFileDialog(&DialogResult::callback, &dialog, window, nullptr, 0, nullptr, false);  // no MIME type for .wua
+#else
+    static const SDL_DialogFileFilter filters[] = {{"Wii U archive (*.wua)", "wua"}, {"All files", "*"}};
+    dialog.pending = true;
+    if (folder) SDL_ShowOpenFolderDialog(&DialogResult::callback, &dialog, window, nullptr, false);
+    else SDL_ShowOpenFileDialog(&DialogResult::callback, &dialog, window, filters, 2, nullptr, false);
+#endif
+}
+
+void Launcher::Impl::open_folder(const stdfs::path& dir) {
+    std::error_code ec;
+    stdfs::create_directories(dir, ec);
+    const auto u = dir.u8string();
+    std::string folder(u.begin(), u.end());
+#ifdef __ANDROID__
+    toast("In " + folder + " - reach it from a PC over USB, or with a file manager that can open Android/data");
+#else
+    std::string url = "file:///" + folder;
+    std::replace(url.begin(), url.end(), '\\', '/');
+    SDL_OpenURL(url.c_str());
+#endif
+}
+
 // MODS -> CHEATS. The list is the cheat file, in Cemu-Enhanced's format, so files made for it work as they are; a
 // switch saves the file and the running game picks the change up on its next frame. Cheats that patch the game's code
 // make the patched functions run through the interpreter (runtime/cheats/cheats.h); turning one off puts the original
@@ -1814,13 +1864,7 @@ void Launcher::Impl::draw_tab_cheats(PanelLayout& p) {
     static std::string file_desc;
     file_desc = "Gateway-style codes, one file per game, in the same format as Cemu-Enhanced and Citra: [name], an optional "
                 "{note}, *cemu_enabled, then code lines. Edit it with any text editor, then Reload.\n\n" + file;
-    if (button_row(p, "Cheat file", file_desc.c_str(), true, "Open")) {
-        std::error_code ec;
-        stdfs::create_directories(cheat_file().parent_path(), ec);
-        std::string url = "file:///" + std::string(reinterpret_cast<const char*>(cheat_file().parent_path().u8string().c_str()));
-        std::replace(url.begin(), url.end(), '\\', '/');
-        SDL_OpenURL(url.c_str());
-    }
+    if (button_row(p, "Cheat file", file_desc.c_str(), true, "Open")) open_folder(cheat_file().parent_path());
     if (button_row(p, "Reload", "Read the cheat file again (after editing it while Cha-Cha runs).", true, "Reload")) {
         cheats_stale = true;
         toast("Cheat file read again");
@@ -1926,11 +1970,7 @@ void Launcher::Impl::draw_tab_textures(PanelLayout& p) {
                   "they are, also in its <title id>/<pack> folders. DDS files straight in this folder are always used.\n\n" +
                   folder;
     group_begin(p, "Library");
-    if (button_row(p, "Texture folder", folder_desc.c_str(), true, "Open")) {
-        std::string url = "file:///" + folder;
-        std::replace(url.begin(), url.end(), '\\', '/');
-        SDL_OpenURL(url.c_str());
-    }
+    if (button_row(p, "Texture folder", folder_desc.c_str(), true, "Open")) open_folder(texture_dir());
     if (button_row(p, "Refresh", "Read the texture folder again (after adding packs while Cha-Cha runs).", true, "Rescan")) {
         tex_stale = true;
         gfx::set_texture_pack_selection(std::vector<std::string>(tex_off.begin(), tex_off.end()));  // the renderer rescans too

@@ -24,6 +24,7 @@
 #include "menu_mouse.h"
 #include "text_trace.h"
 #include "setup.h"
+#include "translate.h"
 #include "mods_ini.h"
 #include "cheats.h"
 #include "game_image.h"
@@ -39,6 +40,9 @@
 #include "read_watch.h"
 
 #include <SDL3/SDL.h>
+#ifdef __ANDROID__
+#include <SDL3/SDL_main.h>  // main() becomes SDL_main, which SDLActivity calls in libmain.so
+#endif
 
 #include <chrono>
 #include <cstdio>
@@ -192,7 +196,12 @@ struct Args {
 // the pipe/file the parent gave us (scripts, tests), else the console of the terminal it was started from, else a
 // new console (--console), else <data>/log.txt.
 void setup_output(const boot::AppPaths& paths, bool new_console) {
-#ifndef _WIN32  // started from a terminal or a launcher: stdout / stderr are already where they should go
+#if defined(__ANDROID__)  // nobody reads stdout on Android: <data>/log.txt (docs/android.md)
+    (void)new_console;
+    const std::string log = (paths.data / "log.txt").string();
+    std::freopen(log.c_str(), "w", stdout);
+    std::freopen(log.c_str(), "a", stderr);
+#elif !defined(_WIN32)  // started from a terminal or a launcher: stdout / stderr are already where they should go
     (void)paths;
     (void)new_console;
 #else
@@ -340,7 +349,8 @@ void on_event(const void* e) {
     // the settings over the game: F1, or a controller's touchpad click (PlayStation), Home / guide or misc (mic, Share,
     // Capture) button - none of them is bound to a game button
     const SDL_Event& ev = *static_cast<const SDL_Event*>(e);
-    if ((ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat && ev.key.key == SDLK_F1) ||
+    // Android's back button (trapped: SDL_HINT_ANDROID_TRAP_BACK_BUTTON) opens them too
+    if ((ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat && (ev.key.key == SDLK_F1 || ev.key.key == SDLK_AC_BACK)) ||
         (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && input::is_settings_button(ev.gbutton.button))) {
         g_launcher->toggle_settings();
         return;
@@ -367,8 +377,23 @@ int main(int argc, char** argv) {
     if (sources.empty()) sources = boot::repo_game_sources(paths);
     std::string err;
     std::optional<fs::GameImage> game;
-    if (!sources.empty()) game = fs::open_game(sources, &err);
-    else err = "No game set up yet. Start without --headless to choose it, or run: mh3u --install <.wua or game folder>";
+#ifdef __ANDROID__
+    // the dumps found by looking (repo_game_sources: <data>/game, common folders) are candidates: the first that opens,
+    // remembered in config.ini like a chosen one
+    if (args.games.empty() && boot::load_game_sources(paths).empty() && !sources.empty()) {
+        const std::vector<stdfs::path> found = sources;
+        sources.clear();
+        for (const stdfs::path& c : found)
+            if ((game = fs::open_game({c}, &err))) {
+                sources = {c};
+                boot::save_game_sources(paths, sources);
+                std::printf("game found: %s\n", c.string().c_str());
+                break;
+            }
+    }
+#endif
+    if (!sources.empty() && !game) game = fs::open_game(sources, &err);
+    else if (sources.empty()) err = "No game set up yet. Start without --headless to choose it, or run: mh3u --install <.wua or game folder>";
     if (args.install) {
         if (!game) {
             std::fprintf(stderr, "%s\n", err.c_str());
@@ -406,6 +431,8 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::printf("Vulkan device: %s\n", presenter.device_name().c_str());
+        // shaders for what this driver takes (phones: Vulkan 1.1, often without shader demote)
+        latte::set_target({presenter.vk().shader_demote, presenter.vk().api_version < VK_API_VERSION_1_2});
         input::init(paths.data, true);
         input::set_window(presenter.window_handle());
         input::set_suspended(true);  // the launcher has the input until PLAY

@@ -884,3 +884,13 @@ Dated, append-only notes of discoveries. Newest at the bottom. Each entry: what 
   (docs/cheats.md). Cemu-Enhanced's texture content hash (64-bit word mix over the tiled level 0, surface size,
   pixel count and GX2 format, splitmix finalizer) was reimplemented and checked bit for bit against its code on
   2,000 random buffers (docs/texture-packs.md).
+- **Android port (2026-11-07, fork).** Built with the NDK (r28+: libc++ 19 has `std::atomic_ref`) as `libmain.so` under
+  SDL3's `SDLActivity`, APK made without Gradle (scripts/build-android.sh). Things the port turned up: the POSIX
+  fault handler read x86-only registers (`REG_ERR`, `REG_RIP`); on arm64 a write is ESR_EL1's WnR bit from the
+  signal frame's `esr_context`, which qemu-user (8.2) leaves out, hence the fallback that decodes the faulting load
+  / store. Guest memory now works per host page (16 KB on newer phones; tested with `qemu-aarch64 -p 16384`). The
+  emitter turned `sync` / `isync` / `eieio` into nothing, which x86's TSO hides; on arm64 they are now fences
+  (`ppc::memory_barrier`, a compiler barrier on x86). Phone GPUs lack BC textures (decoded on the CPU, within 1 of
+  bcdec on a million random blocks) and often shader demote / Vulkan 1.2 (discard and SPIR-V 1.3 instead). Ubuntu's
+  `libshaderc_combined.a` lacks glslang, so the system's shared libshaderc is the fallback without an SDK; Android
+  builds shaderc from source, and shaderc forces glslang's install rules on, so SPIRV-Tools' must stay on too.
