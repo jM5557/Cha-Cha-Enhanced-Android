@@ -46,12 +46,8 @@ uint32_t g_swap_interval = 1;
 double g_target_fps = 0;
 uint32_t g_tv_mode = 0, g_tv_format = 0, g_tv_buffering = 0;
 uint32_t g_drc_mode = 0;
-const auto g_boot = std::chrono::steady_clock::now();
-
-uint64_t now_ticks() {
-    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - g_boot).count();
-    return static_cast<uint64_t>(static_cast<double>(ns) * kTicksPerSec / 1e9);
-}
+// GX2's timestamps (swap status, GPU cycle samples): the guest clock, as OSGetSystemTime (paused with the app)
+uint64_t now_ticks() { return static_cast<uint64_t>(static_cast<double>(os::guest_clock_ns()) * kTicksPerSec / 1e9); }
 void ret64(ppc::Context& ctx, uint64_t v) {
     ctx.r[3] = static_cast<uint32_t>(v >> 32);
     ctx.r[4] = static_cast<uint32_t>(v);

@@ -75,7 +75,9 @@ The MODS buttons that open folders say where the folder is instead (Android has 
 - The controller plays the game as on the PC: a Wii U Pro Controller layout, rebindable in SETTINGS → Input.
 - **Back** (the system back button or gesture), or the controller's Home / guide button, opens the settings over the
   game. **SETTINGS → General → Mods** opens MODS (F2 on the PC), with Quests, Cheats and Textures.
-- When Cha-Cha goes to the background the game pauses, and it carries on when you come back.
+- When Cha-Cha goes to the background (another app, the screen locked) the game pauses, and its clock stops with it:
+  quest timers, alarms and the game's sound pick up where they left off when you come back. The game's calendar
+  clock lags real time by the time spent away.
 
 ## What is different on a phone
 
@@ -111,7 +113,7 @@ The MODS buttons that open folders say where the folder is instead (Android has 
 | Java | `android/java/org/chacha/mh3u/ChaChaActivity.java` (SDL3's `SDLActivity` plus the storage permission), compiled with SDL's Java from the fetched SDL source |
 | Manifest, resources | `android/AndroidManifest.xml`, `android/res/`; the icon comes from `icon/icon.ico` |
 | Platform code | `runtime/boot/android_platform.*` (data folder, permission, JNI), `runtime/boot/android_paths.*` (picker URIs to paths, dump search; `android_paths_test`) |
-| Lifecycle | `runtime/gfx/presenter.cpp`: the surface is dropped on `SDL_EVENT_WILL_ENTER_BACKGROUND` (event watch) and made again on the next present; `GX2SwapScanBuffers` waits while paused |
+| Lifecycle | `runtime/gfx/presenter.cpp`: the surface is dropped on `SDL_EVENT_WILL_ENTER_BACKGROUND` (event watch) and made again on the next present; `GX2SwapScanBuffers` waits while paused. The guest clock (`os::guest_clock_ns`, `runtime/os/hle.cpp`) leaves the paused time out: OSGetTime / OSGetSystemTime, GX2's timestamps, alarms and the AX frame thread all follow it (`os_guest_clock`) |
 
 Tests that run anywhere and matter for Android: `core_guest_memory`, `gfx_bc_decode`, `boot_android_paths`,
 `interp_selftest`, `cheats`. For arm64 they can be cross-compiled and run under `qemu-aarch64 -L

@@ -48,6 +48,14 @@ struct Runtime {
 Runtime& rt();
 inline uint8_t* gbase() { return rt().mem->base(); }
 
+// The guest's clock: nanoseconds since start-up, without the time the app spent paused (Android: in the background,
+// the screen locked). Everything the game measures time with follows it - OSGetTime / OSGetSystemTime, GX2's
+// timestamps, alarms, the audio frame thread - so a quest timer does not run on while the game is away.
+int64_t guest_clock_ns();
+void set_guest_clock_paused(bool paused);  // the presenter, on SDL's background / foreground events
+bool guest_clock_paused();
+void wait_while_guest_paused();  // returns at once unless paused
+
 inline uint32_t arg(const ppc::Context& c, int i) { return c.r[3 + i]; }
 inline void ret(ppc::Context& c, uint32_t v) { c.r[3] = v; }
 inline std::string guest_cstr(uint32_t addr) {
