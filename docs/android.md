@@ -1,67 +1,138 @@
 # Android
 
-Cha-Cha builds as an arm64 APK (`build/android/Cha-Cha-<version>-android-arm64.apk`) with `scripts/build-android.ps1` on Windows.
-Status: **builds; not yet run on a device** (2026-11-11).
+Cha-Cha-Enhanced builds as an Android app (arm64) on Linux, from the same source as the Windows and Linux versions.
+The cheats, texture packs, mods, the DLC screen and every built-in change come along.
 
-## What the APK is
+> [!NOTE]
+> Cha-Cha 0.2 has an experimental Android build of its own, made on Windows with `scripts/build-android.ps1` and the
+> Gradle project in `android/app` (package `io.github.boyclinton.chacha`). This fork builds on Linux with
+> `scripts/build-android.sh` instead, without Gradle, as `org.chacha.mh3u`, and adds what the phone needs beyond
+> it (below): BC textures decoded on the CPU, shaders for Vulkan 1.1 drivers without demote, write tracking with
+> 16 KB pages, real memory fences, the surface and the game's clock handled across background and foreground, and
+> dumps found outside the app's folder. CMake still takes upstream's route (`MH3U_ANDROID_DEPS`), untested here.
 
-- `libmain.so`: the game (recompiled code + runtime), the same code as the PC builds compiled with the NDK's clang for
-  arm64-v8a. Loaded by SDL's Java activity (`android/app/.../ChaChaActivity.java` extends `SDLActivity`), which calls
-  its `SDL_main` (`runtime/boot/main.cpp` includes `SDL_main.h` on Android).
-- `libSDL3.so`: SDL 3.4.16 built from `tools/bin/android/SDL3`; its Java glue is compiled from the same source tree,
-  so the two always match.
-- FFmpeg's H.264 decoder (libavcodec/libavutil 9.0.2, static, nothing else enabled) and shaderc (from the NDK's
-  sources, static), both linked into `libmain.so`.
-- No game files, as with the PC releases. Requirements: Android 10 (API 29), arm64, Vulkan 1.1.
+> [!IMPORTANT]
+> The Android build has been checked as far as is possible without a phone and a dump. The shared code compiles for
+> arm64 with the NDK's C++ library version. The recompiler, interpreter, cheat, texture and guest-memory tests pass on
+> arm64, also with 16 KB pages, under qemu. The Java compiles. It has not yet run on a device: the first runs are the
+> real test. Send `log.txt` (below) when something goes wrong.
 
-## Where things go on the device
+## What it needs
 
-The data folder is the app's own folder on shared storage, `Android/data/io.github.boyclinton.chacha/files`
-(`SDL_GetAndroidExternalStoragePath`; no storage permission needed). It holds `config.ini`, `save/`, `cache/`,
-`log.txt` (stdout + stderr) and the player's dump in a `game` folder (a `.wua` or the code / content / meta folders,
-found by the same rule as next to the PC exe). From a PC over USB the folder is visible as
-`Internal storage/Android/data/io.github.boyclinton.chacha/files`; Android 11+ hides it from on-device file managers.
-`bonus/`, `custom/`, `mods/`, `texture_replacements/` work as on PC.
+- **A phone or handheld:** arm64, Android 10 or newer, Vulkan 1.1 or newer. The game's heap alone is 1 GB of guest
+  memory, so a device with 6 GB of RAM or more is advisable.
+- **A controller.** There are no touch controls yet. Handhelds with built-in controls (Retroid, AYN, Ayaneo) and
+  Bluetooth or USB controllers work through SDL. Taps on the screen point at the game's menus (hover and click, as
+  the mouse does on a PC), but don't press game buttons.
+- **Your dump:** Monster Hunter 3 Ultimate US with update v32, as for the PC versions. The executable is translated
+  into the app when it is built; the rest of the game is read on the phone.
+
+## Building (on Linux, e.g. Arch)
+
+```bash
+scripts/install-deps-linux.sh --android             # compilers, CMake, Ninja, a JDK 17, unzip...
+scripts/build-android.sh --wua ~/path/to/mh3u.wua   # or --rpx MH3G_Cafe_US.rpx; --install puts it on a USB-connected phone
+```
+
+The APK lands in `build/release/Cha-Cha-<version>-arm64.apk`. The first build fetches, once:
+
+- **The Android SDK and NDK**, into `$ANDROID_HOME` (default `~/Android/Sdk`). The script downloads the command-line
+  tools, then `sdkmanager` installs platform 35, build tools 35.0.0 and the newest NDK. NDK r28 or newer is needed,
+  for C++20's `std::atomic_ref`. You accept Google's SDK licences on the way.
+- **shaderc** (v2026.3, with its glslang / SPIRV-Tools), from GitHub. It translates the game's shaders on the phone
+  at the first start.
+- **FFmpeg** (n7.1, the H.264 decoder only), from GitHub, for the game's movies.
+
+shaderc and FFmpeg are kept in `~/.cache/cha-cha-tools/android`. Then the recompiler runs on your PC (a host build
+of `recomp_emit`), the game code is compiled for arm64 (as long as the Linux build; `JOBS` limits the parallel
+compilers), and the APK is put together without Gradle: `aapt2`, `javac`, `d8`, `zipalign` and `apksigner`.
+
+The build folder is `~/cha-cha-android-build` (pass another as the last argument). A build folder belongs to the
+checkout that first used it: when that one was made from another checkout, this one builds in
+`~/cha-cha-android-build-<checkout folder name>` and says so, instead of stopping on CMake's "does not match the
+source used to generate cache".
+
+**Signing.** The APK is signed with a key made on your PC the first time (`~/.cache/cha-cha-tools/android/debug.keystore`).
+Keep that file: an APK signed with another key won't install over this one, so you would have to uninstall first.
+
+Options: `APP_ID=...` changes the package name (default `org.chacha.mh3u`), `ANDROID_HOME` / `ANDROID_NDK_HOME`
+pick an existing SDK / NDK, `JOBS=4` limits the compilers.
+
+## Installing and the first start
+
+1. Copy the APK to the phone and open it (allow installs from the file manager), or `--install` over USB with USB
+   debugging on.
+2. **The game.** Either:
+   - put your `.wua` (or the game folders `code`, `content`, `meta`) in the data folder's `game/` folder, and Cha-Cha
+     finds it by itself with no permission needed; or
+   - leave it in `Download`, `Documents`, `Games`, `ROMs`, `Emulation` or a `Cha-Cha` folder on the internal storage
+     and allow **All files access**: when Cha-Cha finds no game it opens the system's screen for it, and says where
+     it looked. Allow it, then start Cha-Cha again.
+
+   The dump found is remembered in `config.ini` (`game=<path>`); delete that line to look again.
+3. The first start translates the game's shaders (a minute or two on a phone), with the loading screen's bar.
+
+## The data folder
+
+Settings, saves, caches, `log.txt`, `cheats/`, `texture_replacements/`, `bonus/`, `custom/` and `mods/` live in the
+data folder:
+
+- **`/storage/emulated/0/Cha-Cha`**, if that folder exists and Cha-Cha has All files access. It stays when the app is
+  uninstalled, and any file manager reaches it. Create it, grant the permission, and Cha-Cha uses it from the next
+  start. Move your files over from the other folder yourself.
+- Otherwise **`/storage/emulated/0/Android/data/org.chacha.mh3u/files`**. No permission is needed, and a PC sees it
+  over USB, but Android hides it from most file managers and **deletes it with the app**. Back up `save/` before
+  uninstalling.
+
+The Cheats and Texture Packs pages have no Open Folder row on Android (there is no file manager to hand it to): their
+help says where the files are.
 
 ## Controls
 
-Through SDL3's gamepad API, unchanged from PC: a handheld's built-in controls, Bluetooth / USB controllers and
-clip-on controllers all appear as gamepads; remapping works. Mouse and keyboard work where Android has them (DeX,
-Chromebooks). **No touch controls yet**: a phone needs a controller (plan: an on-screen virtual pad in the game's
-style feeding the same input path, menus by tap through `menu_mouse.cpp`).
+- The controller plays the game as on the PC: a Wii U Pro Controller layout, rebindable in Options → Game Options →
+  Controller Settings.
+- **Back** (the system back button or gesture) is the game's **−** button: the pause menu, whose **CFG** tab holds
+  the settings, the mods, **Cheats** and **Texture Packs**. The same pages are in the title's Options → Game Options.
+- When Cha-Cha goes to the background (another app, the screen locked) the game pauses, and its clock stops with it:
+  quest timers, alarms and the game's sound pick up where they left off when you come back. The game's calendar
+  clock lags real time by the time spent away.
 
-## Building
+## What is different on a phone
 
-One-time setup is in `tools/README.md` § Android (Android Studio + SDK, NDK 30, CMake 4.1.2, the Linux NDK and FFmpeg
-source in WSL, SDL3 and Vulkan-Headers in `tools/bin/android`). The PC build must be configured in `build/cmake`.
+- **BC textures.** Most phone GPUs (Adreno, Mali) can't sample BC1-BC5 textures, which the game uses throughout. The
+  renderer decodes them on the CPU when they are loaded (`runtime/gfx/bc_decode.*`), and texture packs' BC files too.
+  BC7 pack files can't be decoded: use BC1-BC3 or RGBA8 for packs meant for phones.
+- **Older Vulkan drivers.** Vulkan 1.1 drivers get SPIR-V 1.3 shaders. Drivers without
+  `VK_EXT_shader_demote_to_helper_invocation` get `discard` in place of `demote` (`translate.h`, `Target`). The cache
+  remembers which, and is redone for another kind of device. Dynamic rendering and synchronization2 are emulated where
+  missing, as for old PC GPUs.
+- **Memory ordering.** arm64, unlike x86, reorders memory accesses between threads, so the game's own `sync` / `isync`
+  / `eieio` are real fences there (`ppc::memory_barrier`).
+- **Guest memory** uses the host's page size: 4 KB, or 16 KB on newer phones. On arm64 the write-tracking fault handler
+  tells writes from reads by the fault's ESR (or, under emulators, the instruction). Libraries are aligned for 16 KB
+  pages.
 
-```
-scripts/build-android.ps1                                     # debug-signed, for adb install / testing
-scripts/build-android.ps1 -Release -Keystore my.jks -KeyAlias chacha   # release, signed with your own key
-```
+## When something goes wrong
 
-Steps, each skipped when up to date:
-1. FFmpeg for arm64 in WSL (`scripts/android/build-ffmpeg.sh`, installed under `~/android-deps` and copied to
-   `build/android/deps/arm64-v8a`).
-2. shaderc with `ndk-build` (work tree `%LOCALAPPDATA%\cha-cha-android`: its generator scripts break on the spaces in
-   the checkout path; the script merges the component libraries itself because ndk-build's own merge step quotes its
-   `llvm-ar` script wrongly on Windows).
-3. The game code: the PC tree's `recomp_emit` writes `build/android/recomp-out` (a cross build cannot run it, so
-   `recomp/CMakeLists.txt` only checks the files exist when `CMAKE_CROSSCOMPILING`).
-4. CMake + Ninja with the NDK toolchain into `build/android/cmake`; the stripped libraries go to
-   `build/android/jniLibs/arm64-v8a`.
-5. Gradle (`android/`, wrapper → Gradle 9.9.1, AGP 9.5.1, JBR = Java 25) packages the APK; the launcher icon is the
-   PNG inside `icon/icon.ico`.
+- `log.txt` in the data folder has everything the PC version prints to its console: Vulkan device, shader
+  translation, `cheats:` lines, crashes with the faulting address.
+- `adb logcat -s SDL SDL/APP DEBUG` shows SDL's messages and native crash reports.
+- To symbolise a native crash, use `android/runtime/boot/libmain.so` in the build folder (the APK's copy is
+  stripped).
 
-Install on a device with USB debugging: `adb install -r build/android/Cha-Cha-<version>-android-arm64.apk`; read the log with
-`adb shell cat /sdcard/Android/data/io.github.boyclinton.chacha/files/log.txt`.
+## How it is built (for working on it)
 
-## Platform notes
+| Piece | Where |
+|---|---|
+| Native library | `runtime/boot/CMakeLists.txt`: `libmain.so` on Android (`add_library(mh3u SHARED)`), `main()` becomes `SDL_main` (`SDL_main.h` in `main.cpp`) |
+| Host tools | `recomp/CMakeLists.txt` builds on its own (`cmake -S recomp`); a cross build imports `recomp_emit` and `emit_selftest_gen` from `MH3U_HOST_TOOLS` (without it, upstream's route: the code generated beforehand) |
+| shaderc | `tools/shaderc-latte/CMakeLists.txt`: `MH3U_SHADERC_SOURCE` (`add_subdirectory`), or upstream's prebuilt `MH3U_ANDROID_DEPS` |
+| FFmpeg | `runtime/os/CMakeLists.txt`: `MH3U_FFMPEG_DIR` (static `libavcodec.a` / `libavutil.a`; defaults to `MH3U_ANDROID_DEPS`) |
+| Java | `android/java/org/chacha/mh3u/ChaChaActivity.java` (SDL3's `SDLActivity` plus the storage permission), compiled with SDL's Java from the fetched SDL source |
+| Manifest, resources | `android/AndroidManifest.xml`, `android/res/`; the icon comes from `icon/icon.ico` |
+| Platform code | `runtime/boot/android_platform.*` (data folder, permission, JNI), `runtime/boot/android_paths.*` (dump search, document URIs to paths; `android_paths_test`); the search and the permission request in `runtime/boot/main.cpp` |
+| Lifecycle | `runtime/gfx/presenter.cpp`: the surface is dropped on `SDL_EVENT_WILL_ENTER_BACKGROUND` (event watch) and made again on the next present; `GX2SwapScanBuffers` waits while paused. The guest clock (`os::guest_clock_ns`, `runtime/os/hle.cpp`) leaves the paused time out: OSGetTime / OSGetSystemTime, GX2's timestamps, alarms and the AX frame thread all follow it (`os_guest_clock`) |
 
-- Guest memory (`runtime/core/guest_memory_posix.inc`) reserves 4 GB with `mmap(PROT_NONE)`, as on Linux. The fault
-  handler reads the write bit from the arm64 signal frame's `esr_context` (ESR WnR) and the PC from `uc_mcontext.pc`.
-- 16 KB-page devices (some Android 15+ phones): `commit()` works in whole host pages, and write tracking (4 KB
-  mprotect granularity) is switched off, so `written_since()` always answers "written" and texture caches re-read
-  guest memory (slower, correct). `libmain.so` is linked with 16 KB segment alignment.
-- Vulkan: the renderer asks for 1.3 and loads its 1.3 calls through `vkGetDeviceProcAddr` (`vk_compat.cpp`), so
-  linking against the API-29 `libvulkan.so` works; headers come from Vulkan-Headers 1.4.363 (the NDK's are older).
+Tests that run anywhere and matter for Android: `core_guest_memory`, `gfx_bc_decode`, `boot_android_paths`,
+`interp_selftest`, `cheats`. For arm64 they can be cross-compiled and run under `qemu-aarch64 -L
+/usr/aarch64-linux-gnu`, with `-p 16384` for 16 KB pages.

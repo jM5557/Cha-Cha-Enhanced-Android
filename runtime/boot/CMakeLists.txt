@@ -1,7 +1,9 @@
 # The game executable: recompiled code + HLE runtime.
-set(boot_sources main.cpp profiler.cpp read_watch.cpp read_watch.h app_paths.cpp app_paths.h quests.cpp quests.h shader_prep.cpp shader_prep.h loading_screen.cpp loading_screen.h graphics_menu.cpp graphics_menu.h texture_dump.cpp texture_dump.h controls_menu.cpp controls_menu.h dlc_content.cpp dlc_content.h mods_ini.h enhanced_menu.cpp enhanced_menu.h menu_text.h)
+set(boot_sources main.cpp profiler.cpp read_watch.cpp read_watch.h app_paths.cpp app_paths.h quests.cpp quests.h shader_prep.cpp shader_prep.h loading_screen.cpp loading_screen.h graphics_menu.cpp graphics_menu.h texture_dump.cpp texture_dump.h controls_menu.cpp controls_menu.h dlc_content.cpp dlc_content.h mods_ini.h enhanced_menu.cpp enhanced_menu.h menu_text.h
+  android_paths.cpp android_paths.h android_platform.cpp android_platform.h)
 if(ANDROID)
-  # libmain.so: SDL's Java activity (android/) loads it and calls SDL_main (main.cpp includes SDL_main.h there)
+  # libmain.so: SDL's Java activity (android/) loads it and calls SDL_main (main.cpp includes SDL_main.h there);
+  # packaged by scripts/build-android.sh
   add_library(mh3u SHARED ${boot_sources})
 else()
   add_executable(mh3u WIN32 ${boot_sources})
@@ -55,3 +57,5 @@ add_test(NAME boot_quests COMMAND quests_test)
 # Cha-Cha-Enhanced: the Cheats / Texture Packs rows' text, and mods.ini (kept keys, the 0.1 file carried over)
 add_executable(menu_text_test menu_text_test.cpp menu_text.h mods_ini.h)
 add_test(NAME boot_menu_text COMMAND menu_text_test)
+add_executable(android_paths_test android_paths_test.cpp android_paths.cpp android_paths.h)
+add_test(NAME boot_android_paths COMMAND android_paths_test)

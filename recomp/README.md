@@ -15,7 +15,8 @@ Our own recompiler (decision in `CLAUDE.md`). Pipeline, as it gets built:
 - FP lanes follow Gekko: `lfs` and single-precision ops (`fadds`, `frsp`, …) write both lanes; `lfd`, `fmr` and
   double ops write ps0 only; `ps_merge10` swaps – which is what GHS's ps1 save/restore relies on.
 - Host-safety choices: `divw` by 0 / `INT_MIN/-1` give Dolphin's results instead of trapping; cache ops are no-ops
-  except `dcbz` (zeroes 32 bytes). `fres`/`frsqrte` are exact, not the hardware estimate; `fctiw` assumes
+  except `dcbz` (zeroes 32 bytes); `sync` / `isync` / `eieio` are `ppc::memory_barrier()` (a fence on arm64, a compiler
+  barrier on x86). `fres`/`frsqrte` are exact, not the hardware estimate; `fctiw` assumes
   round-to-nearest (FPSCR rounding mode not modelled yet).
 
 ## Emitter (`src/emitter.h`)

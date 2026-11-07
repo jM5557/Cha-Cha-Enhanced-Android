@@ -145,6 +145,8 @@ int main() {
             const bool addresses = run.entry == kMemory || run.entry == kFloat || run.entry == kPsLanes ||
                                    run.entry == kAtomicInc || run.entry == kLswi;
             if (addresses && (s.r[3] >= 0xF000 || s.r[4] >= 0xF000)) continue;
+            // lwarx / stwcx. need a word-aligned address (as on the hardware; arm64 faults on an unaligned atomic)
+            if (run.entry == kAtomicInc && (s.r[3] & 3)) continue;
             // the trap test traps (by design) when r3 == 99
             if (run.entry == kTrapNot && s.r[3] == 99) continue;
             ppc::Context a = s, b = s;

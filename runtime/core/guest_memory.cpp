@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <mutex>
 #include <stdexcept>
@@ -19,9 +20,6 @@
 #include <signal.h>
 #include <sys/mman.h>
 #include <ucontext.h>
-#if defined(__aarch64__)
-#include <asm/sigcontext.h>  // esr_context (guest_memory_posix.inc)
-#endif
 #include <unistd.h>
 #endif
 

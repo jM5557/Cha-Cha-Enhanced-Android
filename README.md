@@ -173,6 +173,9 @@ Settings.
 3. **Wait a few seconds** on the loading screen while the game's shaders are compiled for your PC. This happens once;
    then the game's intro plays.
 
+**Android** (arm64, Android 10+, with a controller): there is no ready-made APK, as the game code comes from your own
+executable; build one on Linux with `scripts/build-android.sh` ([Building from source](#android)).
+
 Your **data folder** keeps settings, saves, caches, quests, mods and texture packs:
 
 | | Data folder |
@@ -180,19 +183,21 @@ Your **data folder** keeps settings, saves, caches, quests, mods and texture pac
 | Windows | `%APPDATA%\Cha-Cha` |
 | Linux | `~/.local/share/Cha-Cha` (or `$XDG_DATA_HOME/Cha-Cha`) |
 | Portable | `data/` next to the program, when a file named `portable.txt` sits beside it (the Windows zip ships with one) |
-| Android | `Android/data/io.github.boyclinton.chacha/files` |
+| Android | `/storage/emulated/0/Cha-Cha` when that folder exists and Cha-Cha has All files access, else `Android/data/org.chacha.mh3u/files` |
 
 Saves live in `<data folder>/save`.
 
-### Android (experimental)
+### Android
 
-`Cha-Cha-<version>-android-arm64.apk` runs the same game code on **Android 10 or newer, arm64, with Vulkan 1.1**. It
-has not run on a real device yet, so it may not start on yours; reports are welcome on [#18](../../issues/18).
+The APK you build ([below](#android)) runs the same game code on **Android 10 or newer, arm64, with Vulkan 1.1**.
 
 - **Controls:** a controller is needed for now: a handheld's built-in controls, a Bluetooth or USB controller, or a
-  clip-on one. Touch controls are not there yet.
-- **Your dump:** connect the device to a PC over USB and copy it into a folder named `game` inside the data folder
-  above. `log.txt` in the same folder says what went wrong if it does not start.
+  clip-on one. Touch controls are not there yet; taps point at menus. **Back** is the game's − button (the pause
+  menu, with the CFG tab).
+- **Your dump:** copy it into a folder named `game` inside the data folder above (over USB from a PC), or keep it in
+  Download, Documents, Games, ROMs or Emulation and allow All files access when Cha-Cha asks.
+- **In the background** the game pauses, its clock and quest timer too. `log.txt` in the data folder says what went
+  wrong if it does not start. More: [docs/android.md](docs/android.md).
 
 ### Default controls
 
@@ -324,6 +329,19 @@ scripts/package-appimage.sh                         # build/release/Cha-Cha-<ver
 
 More: [docs/linux.md](docs/linux.md).
 
+### Android
+
+An arm64 APK for Android 10+ (Vulkan 1.1, a controller), built on Linux. The SDK, NDK, shaderc and FFmpeg are
+fetched by the script:
+
+```bash
+scripts/install-deps-linux.sh --android
+scripts/build-android.sh --wua ~/path/to/mh3u.wua   # build/release/Cha-Cha-<version>-arm64.apk; --install over USB
+```
+
+Put your `.wua` in the app's `game/` folder or in Download (with All files access). Cheats, texture packs, mods and
+DLC quests work as on the PC. Details, the data folder and what differs on a phone: [docs/android.md](docs/android.md).
+
 ### Windows
 
 1. Put your dump at `game/mh3u.wua` ([game/README.md](game/README.md)), then run
@@ -340,8 +358,8 @@ More: [docs/linux.md](docs/linux.md).
    `scripts/package-release.ps1` makes the release zip.
 3. **Linux** (or WSL2 on Windows): see [Linux and SteamOS](#linux-and-steamos) above; `scripts/package-appimage.sh`
    makes the AppImage and the tarball ([docs/linux.md](docs/linux.md)).
-4. **Android** (from Windows): Android Studio with NDK 30 and CMake 4.1.2, plus WSL2 for FFmpeg; with the Windows
-   build configured, `scripts/build-android.ps1` makes the APK ([docs/android.md](docs/android.md)).
+4. **Android**: on Linux, see [Android](#android) above. Upstream's Windows route (Android Studio, NDK 30, WSL2 for
+   FFmpeg, `scripts/build-android.ps1`) is still there but not tested in this fork.
 
 Inside the checkout Cha-Cha finds `extracted/` by itself and uses the checkout as its data folder (all of it
 gitignored). The release packages never contain game files, but the program itself contains the recompiled game
@@ -357,7 +375,7 @@ code, translated from your executable at build time.
 | `recomp/` | The recompiler; `recomp/out/` is the generated C++ | source only |
 | `runtime/` | The PC layer replacing the Wii U system: `os`, `gfx` (GX2 on Vulkan), `audio`, `input`, `fs`, `boot`, `cheats` | yes |
 | `src/` | Hand-written game code: item sets, mods, the camera, Cha-Cha's menu pages… | yes |
-| `android/` | The Android app around the game library (SDL's activity, manifest, Gradle) | yes |
+| `android/` | The Android app: manifest, resources and activity for `scripts/build-android.sh`; `android/app` is upstream's Gradle project (`build-android.ps1`) | yes |
 | `assets/cheats/` | The bundled MH3U US cheat file (jM5557's, written to the data folder on the first start) | yes |
 | `tools/`, `scripts/`, `ghidra/` | Shader translator, helper scripts, reverse-engineering scripts | yes |
 | `docs/` | Formats, the runtime and engine, mods, input, Linux, Android, online notes | yes |
@@ -376,7 +394,7 @@ How the port works: [docs/runtime.md](docs/runtime.md), [docs/engine.md](docs/en
 - **jM5557**: the MH3U cheats bundled with Cha-Cha, and Cemu-Enhanced, whose cheat file format and texture pack
   format (names, `textures.ini`, content hash) Cha-Cha reads.
 - **Ghidra**, for reverse engineering.
-- **Libraries:** SDL3, zstd, the Vulkan SDK (shaderc, glslang, SPIRV-Tools; on Android the NDK's shaderc), FFmpeg's
+- **Libraries:** SDL3, zstd, the Vulkan SDK (shaderc, glslang, SPIRV-Tools; on Android shaderc built from source), FFmpeg's
   libavcodec on Linux and Android ([docs/release/THIRD_PARTY_NOTICES.md](docs/release/THIRD_PARTY_NOTICES.md)).
 
 Monster Hunter is a trademark of Capcom. Wii U is a trademark of Nintendo.

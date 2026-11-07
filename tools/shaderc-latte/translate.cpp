@@ -62,6 +62,12 @@ std::map<uint64_t, Found> find_shaders(const ContentReader& content, int* gfds, 
     return out;
 }
 
+namespace {
+Target g_target;
+}  // namespace
+void set_target(const Target& t) { g_target = t; }
+const Target& target() { return g_target; }
+
 std::vector<uint32_t> compile_glsl(const std::string& source, Stage stage, const std::string& name, bool optimize,
                                    std::string* error) {
     thread_local struct Compiler {
@@ -69,8 +75,10 @@ std::vector<uint32_t> compile_glsl(const std::string& source, Stage stage, const
         shaderc_compile_options_t opt = make(shaderc_optimization_level_performance), plain = make(shaderc_optimization_level_zero);
         static shaderc_compile_options_t make(shaderc_optimization_level level) {
             shaderc_compile_options_t opts = shaderc_compile_options_initialize();
-            // Vulkan 1.2 (SPIR-V 1.5): older GPUs' drivers stop at 1.2; demote comes from SPV_EXT_demote_to_helper_invocation
-            shaderc_compile_options_set_target_env(opts, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+            // Vulkan 1.2 (SPIR-V 1.5): older GPUs' drivers stop at 1.2; demote comes from SPV_EXT_demote_to_helper_invocation.
+            // Vulkan 1.1 drivers (phones): SPIR-V 1.3.
+            shaderc_compile_options_set_target_env(opts, shaderc_target_env_vulkan,
+                                                   g_target.vulkan_1_1 ? shaderc_env_version_vulkan_1_1 : shaderc_env_version_vulkan_1_2);
             shaderc_compile_options_set_optimization_level(opts, level);
             return opts;
         }
@@ -172,7 +180,8 @@ TranslateResult translate_all(const ContentReader& content, const stdfs::path& o
 }
 
 std::string cache_stamp(const std::string& rpx_sha1) {
-    return "translator " + std::to_string(kTranslatorVersion) + " game " + rpx_sha1 + "\n";
+    return "translator " + std::to_string(kTranslatorVersion) + " game " + rpx_sha1 + (g_target.demote ? "" : " discard") +
+           (g_target.vulkan_1_1 ? " vulkan1.1" : "") + "\n";
 }
 
 bool cache_is_current(const stdfs::path& out, const std::string& stamp) {

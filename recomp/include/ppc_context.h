@@ -230,6 +230,16 @@ inline void stswi(Context& ctx, uint8_t* base, uint32_t ea, uint32_t rs, uint32_
         base[ea + i] = static_cast<uint8_t>(ctx.r[r] >> (24 - 8 * (i % 4)));
     }
 }
+// sync / isync / eieio. The guest (PowerPC) is weakly ordered like arm64, so its own barriers are what other threads'
+// ordering rests on: on arm64 they are real fences; x86 is strongly ordered (TSO), so there they only keep the C++
+// compiler from moving memory accesses across them.
+inline void memory_barrier() {
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__)
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+#else
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+#endif
+}
 // single-precision results are rounded to float and written to both lanes (as on Gekko/Espresso)
 inline double round_single(double v) { return static_cast<double>(static_cast<float>(v)); }
 // fctiw(z): saturating conversion; the integer lands in the low word of the FPR's bit pattern

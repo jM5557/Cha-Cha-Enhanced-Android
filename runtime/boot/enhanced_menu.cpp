@@ -28,7 +28,8 @@ using menu_text::wrap;
 
 const std::vector<std::string> kOffOn = {"Off", "On"};
 // rows that are not a cheat or a pack
-constexpr int kMaster = -1, kDump = -2, kEmpty = -3, kOpenFolder = -4;
+constexpr int kMaster = -1, kDump = -2, kEmpty = -3;
+[[maybe_unused]] constexpr int kOpenFolder = -4;  // (no such row on Android)
 // label widths: the Game Options pages' label column, and the field menu's narrower one
 constexpr size_t kLabelMax = 30, kShortMax = 18;
 

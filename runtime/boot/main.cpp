@@ -38,6 +38,8 @@
 #include "text_trace.h"
 #include "loading_screen.h"
 #include "shader_prep.h"
+#include "translate.h"
+#include "android_platform.h"
 #include "mods_ini.h"
 #include "cheats.h"
 #include "enhanced_menu.h"
@@ -382,6 +384,11 @@ void on_event(const void* e) {
         const SDL_Event& ev = *static_cast<const SDL_Event*>(e);
         if (ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat && ev.key.key == SDLK_F9) gfx::dump_frames(g_dump_key.count, g_dump_key.step);
     }
+#ifdef __ANDROID__
+    // Android's back button (trapped: leaving would end the game, presenter.cpp) is the game's - button: the pause menu
+    if (const SDL_Event& ev = *static_cast<const SDL_Event*>(e); ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat && ev.key.key == SDLK_AC_BACK)
+        input::tap(input::kMinus);
+#endif
 }
 
 }  // namespace
@@ -401,18 +408,39 @@ int main(int argc, char** argv) {
     if (sources.empty()) sources = boot::repo_game_sources(paths);
     std::string err;
     std::optional<fs::GameImage> game;
-    if (!sources.empty()) game = fs::open_game(sources, &err);
-    else
+#ifdef __ANDROID__
+    // the dumps found by looking (folder_game_sources / repo_game_sources: <data>/game, common folders) are candidates:
+    // the first that opens, remembered in config.ini like one given with --install
+    if (args.games.empty() && boot::load_game_sources(paths).empty() && !sources.empty()) {
+        const std::vector<stdfs::path> found = sources;
+        sources.clear();
+        for (const stdfs::path& c : found)
+            if ((game = fs::open_game({c}, &err))) {
+                sources = {c};
+                boot::save_game_sources(paths, sources);
+                std::printf("game found: %s\n", c.string().c_str());
+                break;
+            }
+        if (!game) sources = found;  // (their error stays in err)
+    }
+#endif
+    if (!sources.empty() && !game) game = fs::open_game(sources, &err);
+    else if (sources.empty())
 #ifdef __ANDROID__
         err = "Cha-Cha needs your own dump of Monster Hunter 3 Ultimate (US) with update v32 to play: a .wua file, or the "
               "game's folders (code, content, meta).\n\nCopy it into a folder named \"game\" in " + utf8(paths.data) +
-              " (connect the device to a PC over USB: Android/data/<this app>/files).";
+              " (from a PC over USB), or into Download, Games or a Cha-Cha folder on the device's storage - for those, "
+              "allow Cha-Cha to access all files. Then start Cha-Cha again.";
 #else
         err = "Cha-Cha needs your own dump of Monster Hunter 3 Ultimate (US) with update v32 to play: a .wua file, or the "
               "game's folders (code, content, meta).\n\nPut it in a folder named \"game\" next to Cha-Cha.exe, or add a line "
               "game=<path to it> to " + utf8(paths.config()) + ".";
 #endif
     if (!game && !args.headless && !args.install) {  // nothing to play: say what is needed
+#ifdef __ANDROID__
+        // the folders outside the app's own are read by path: that needs All files access (the system's screen for it)
+        if (sources.empty() && !boot::android_has_all_files_access()) boot::android_request_all_files_access();
+#endif
         const std::string text = sources.empty() ? err : "Cha-Cha can't play the game files it was given:\n\n" + err;
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Cha-Cha - game files missing", text.c_str(), nullptr);
         return 1;
@@ -457,6 +485,8 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::printf("Vulkan device: %s\n", presenter.device_name().c_str());
+        // shaders for what this driver takes (phones: Vulkan 1.1, often without shader demote)
+        latte::set_target({presenter.vk().shader_demote, presenter.vk().api_version < VK_API_VERSION_1_2});
         input::init(paths.data, true);
         input::set_window(presenter.window_handle());
         presenter.set_display_mode(settings.display_mode == "fullscreen" ? 2 : settings.display_mode == "borderless" ? 1 : 0);

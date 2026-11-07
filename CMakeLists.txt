@@ -35,12 +35,15 @@ else()
   add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-include>" "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/runtime/core/win_compat.h>")
 endif()
 
-# Android (docs/android.md, scripts/build-android.ps1): FFmpeg's H.264 decoder and shaderc are prebuilt for the ABI
-# into one include/ + lib/ prefix; the game is libmain.so, loaded by SDL's Java activity.
 if(ANDROID)
-  set(MH3U_ANDROID_DEPS "" CACHE PATH "FFmpeg + shaderc for this ABI (include/, lib/)")
-  if(NOT EXISTS "${MH3U_ANDROID_DEPS}/lib/libavcodec.a" OR NOT EXISTS "${MH3U_ANDROID_DEPS}/lib/libshaderc_combined.a")
-    message(FATAL_ERROR "MH3U_ANDROID_DEPS (${MH3U_ANDROID_DEPS}) lacks FFmpeg or shaderc: use scripts/build-android.ps1")
+  # 16 KB-page devices (Android 15+) load only libraries aligned for them
+  add_link_options("-Wl,-z,max-page-size=16384")
+  # FFmpeg's H.264 decoder and shaderc for the ABI. scripts/build-android.sh (Linux, docs/android.md) passes
+  # MH3U_FFMPEG_DIR and MH3U_SHADERC_SOURCE; upstream's scripts/build-android.ps1 (Windows) one prebuilt include/ +
+  # lib/ prefix with both, MH3U_ANDROID_DEPS. The game is libmain.so, loaded by SDL's Java activity.
+  set(MH3U_ANDROID_DEPS "" CACHE PATH "FFmpeg + shaderc prebuilt for this ABI (include/, lib/): build-android.ps1")
+  if(MH3U_ANDROID_DEPS AND (NOT EXISTS "${MH3U_ANDROID_DEPS}/lib/libavcodec.a" OR NOT EXISTS "${MH3U_ANDROID_DEPS}/lib/libshaderc_combined.a"))
+    message(FATAL_ERROR "MH3U_ANDROID_DEPS (${MH3U_ANDROID_DEPS}) lacks FFmpeg or shaderc")
   endif()
 endif()
 
