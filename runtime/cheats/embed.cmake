@@ -1,0 +1,7 @@
+# cmake -DIN=<file> -DOUT=<cpp> -P embed.cmake: the file as a byte array (no string-literal length limits)
+file(READ "${IN}" hex HEX)
+string(LENGTH "${hex}" n)
+math(EXPR bytes "${n} / 2")
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," body "${hex}")
+string(REGEX REPLACE "(0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,)" "\\1\n" body "${body}")
+file(WRITE "${OUT}" "// Generated from ${IN} - do not edit.\n#include <cstddef>\nnamespace mh3u::cheats {\nextern const unsigned char kBundledCheats[] = {\n${body}0};\nextern const size_t kBundledCheatsSize = ${bytes};\n}\n")
