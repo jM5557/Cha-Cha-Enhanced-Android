@@ -63,7 +63,7 @@ HLE_FUNC(coreinit, OSSendAppSwitchRequest) { ret(ctx, 0); }
 
 // ---- OSAlarm
 struct Alarm {
-    uint64_t due = 0;        // host steady-clock nanoseconds
+    uint64_t due = 0;        // guest clock nanoseconds (guest_clock_ns)
     uint64_t period = 0;     // 0 = one-shot
     uint32_t callback = 0;
     uint32_t user_data = 0;
@@ -77,11 +77,7 @@ std::thread g_alarm_thread;
 uint32_t g_alarm_stack_top = 0, g_alarm_context = 0;
 constexpr double kNsPerTick = 1e9 / 62156250.0;
 
-uint64_t now_ns() {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                     std::chrono::steady_clock::now().time_since_epoch())
-                                     .count());
-}
+uint64_t now_ns() { return static_cast<uint64_t>(guest_clock_ns()); }  // the guest clock: alarms wait out a pause
 
 void alarm_service() {
     std::unique_lock l(g_alarm_m);
@@ -95,6 +91,12 @@ void alarm_service() {
             }
         if (!fire) {
             g_alarm_cv.wait(l);
+            continue;
+        }
+        if (guest_clock_paused()) {  // the app is in the background: no callbacks until it is back
+            l.unlock();
+            wait_while_guest_paused();
+            l.lock();
             continue;
         }
         const uint64_t now = now_ns();

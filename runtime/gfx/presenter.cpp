@@ -1,6 +1,7 @@
 #include "presenter.h"
 
 #include "gx2.h"
+#include "hle.h"
 #include "vk_compat.h"
 
 #include <SDL3/SDL.h>
@@ -162,6 +163,7 @@ void Presenter::Impl::lose_surface() {
 // Android takes the window away while the app is in the background: the surface goes before it does (the event is
 // sent synchronously, from an event watch), presenting stops, and the game thread waits in wait_while_paused().
 void Presenter::Impl::enter_background() {
+    os::set_guest_clock_paused(true);  // the game's time stands still too (quest timers, alarms, audio)
     std::lock_guard g(m);
     paused = true;
     lose_surface();
@@ -173,6 +175,7 @@ void Presenter::Impl::enter_foreground() {
         paused = false;
     }
     resumed.notify_all();
+    os::set_guest_clock_paused(false);
 }
 
 void Presenter::wait_while_paused() {

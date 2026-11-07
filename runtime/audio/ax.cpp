@@ -293,6 +293,10 @@ void frame_thread() {
     auto next = clock::now();
     uint8_t* base = os::gbase();
     while (g_running) {
+        if (os::guest_clock_paused()) {  // the app is in the background: the game's sound stops with it
+            os::wait_while_guest_paused();
+            next = clock::now();
+        }
         if (g_stream) {
             if (SDL_GetAudioStreamQueued(g_stream) >= kTargetBytes) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));

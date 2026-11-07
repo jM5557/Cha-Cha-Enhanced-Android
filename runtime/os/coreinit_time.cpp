@@ -13,16 +13,16 @@ namespace mh3u::os {
 namespace {
 
 constexpr uint64_t kBusClock = 248625000, kCoreClock = 1243125000, kTicksPerSec = kBusClock / 4;
-const auto g_boot = std::chrono::steady_clock::now();
-
-int64_t ticks_since_boot() {
-    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - g_boot).count();
-    return static_cast<int64_t>(static_cast<double>(ns) * kTicksPerSec / 1e9);
-}
+// OSTime and the system time advance with the guest clock, which stands still while the app is paused (hle.h).
+// OSTime starts from the wall clock at the first call.
+int64_t ticks_since_boot() { return static_cast<int64_t>(static_cast<double>(guest_clock_ns()) * kTicksPerSec / 1e9); }
 int64_t ticks_since_2000() {
-    using namespace std::chrono;
+    static const int64_t wall_at_zero = [] {
+        using namespace std::chrono;
+        return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count() - guest_clock_ns();
+    }();
     const int64_t unix_2000 = 946684800;
-    auto ns = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count() - unix_2000 * 1000000000ll;
+    const int64_t ns = wall_at_zero + guest_clock_ns() - unix_2000 * 1000000000ll;
     return static_cast<int64_t>(static_cast<double>(ns) * kTicksPerSec / 1e9);
 }
 void ret64(ppc::Context& ctx, int64_t v) {
