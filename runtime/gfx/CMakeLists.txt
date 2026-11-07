@@ -9,3 +9,5 @@ target_link_libraries(mh3u_gfx PUBLIC mh3u_os Vulkan::Vulkan PRIVATE SDL3::SDL3 
 
 add_executable(tiling_test tiling_test.cpp tiling.cpp)
 add_test(NAME gfx_tiling COMMAND tiling_test)
+add_executable(texture_pack_test texture_pack_test.cpp texture_pack.cpp)
+add_test(NAME gfx_texture_packs COMMAND texture_pack_test)

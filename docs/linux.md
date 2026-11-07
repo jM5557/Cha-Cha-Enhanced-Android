@@ -4,6 +4,30 @@ Goal: ship `Cha-Cha-<version>-x86_64.AppImage` next to the Windows zip on GitHub
 contains the recompiled game code, the player brings their own dump). The public GitHub push waits until both
 exist (user decision 2026-10-28).
 
+## Building it yourself (2026-11-07)
+
+The short version is in the README (Building from source → Linux and SteamOS):
+`scripts/install-deps-linux.sh`, `scripts/build-linux.sh --wua <dump.wua>` (or `--rpx <MH3G_Cafe_US.rpx>`),
+`scripts/package-appimage.sh`.
+
+- **Distributions.** `install-deps-linux.sh` knows pacman (Arch and its derivatives), apt (Debian / Ubuntu) and dnf
+  (Fedora). SteamOS has a read-only system: build in a distrobox (`distrobox create -n chacha -i ubuntu:24.04`) and
+  run the AppImage on SteamOS itself. An AppImage built on Ubuntu 22.04 runs on the most systems (glibc 2.35+); one
+  built on 24.04 or a current Arch needs a system at least that new (SteamOS 3.7 is).
+- **The executable.** Only the US v32 `MH3G_Cafe_US.rpx` is needed to build (the build translates it); the full game
+  is chosen at the first start. `build-linux.sh --wua` builds ZArchive (Exzap/ZArchive) into
+  `~/.cache/cha-cha-tools` on first use, unpacks the archive to a temporary folder, keeps the update's executable and
+  deletes the rest. `--rpx` copies the file. Both check its SHA-1 against `config/target.txt` (the ELF loader
+  decompresses the RPX itself, so no wiiurpxtool is needed); `MH3U_SKIP_SHA_CHECK=1` accepts an already
+  decompressed ELF.
+- **shaderc.** The LunarG SDK (`/opt/vulkan/<version>/x86_64` or `$VULKAN_SDK`) when present, else the
+  distribution's through pkg-config (`tools/shaderc-latte/CMakeLists.txt`). Ubuntu's `libshaderc_combined.a` leaves
+  glslang out, so the system's shared `libshaderc` is linked, and linuxdeploy bundles it into the AppImage.
+- **Linker / compiler.** `clang` (or `clang-15`) and `ld.lld` when installed, else the default linker; `CC` / `CXX`
+  override. `JOBS` defaults to about one compiler per 2 GB of free memory, at most one per core.
+- **Packaging** needs `file` (appimagetool stops without it, after the whole AppDir is made), `curl` and `python3`;
+  `package-appimage.sh` checks for them first.
+
 ## Status (2026-10-28)
 
 - Ported and building in WSL2 Ubuntu 22.04 with clang 15 (`scripts/build-linux.sh`); Windows builds and all 12

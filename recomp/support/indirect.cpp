@@ -52,13 +52,54 @@ thread_local uint32_t t_indirect_target = 0;
 
 uint32_t current_indirect_target() { return t_indirect_target; }
 
+GuestFunction lookup_function(uint32_t addr) {
+    GuestFunction fn = direct().get(addr);
+    if (!fn) fn = find(kImportTable, kImportCount, addr);
+    if (!fn) fn = find_indirect(addr);
+    return fn;
+}
+
 void call_indirect(Context& ctx, uint8_t* base, uint32_t target) {
-    GuestFunction fn = direct().get(target);
-    if (!fn) fn = find(kImportTable, kImportCount, target);
-    if (!fn) fn = find_indirect(target);
+    GuestFunction fn = lookup_function(target);
     if (!fn) unimplemented_function(target);
     t_indirect_target = target;
     fn(ctx, base);
+}
+
+// ---- patched-function flags (ppc_context.h, "patched code") ------------------------------------------------------
+// One byte per word over the function table's address range, allocated on the first patch; read by every emitted
+// function while g_patched_functions != 0.
+std::atomic<uint32_t> g_patched_functions{0};
+
+namespace {
+std::atomic<std::atomic<uint8_t>*> g_patch_flags{nullptr};
+}  // namespace
+
+bool function_patched(uint32_t entry) {
+    const DirectTable& t = direct();
+    std::atomic<uint8_t>* flags = g_patch_flags.load(std::memory_order_acquire);
+    if (!flags || entry < t.lo || entry >= t.hi || (entry & 3)) return false;
+    return flags[(entry - t.lo) / 4].load(std::memory_order_relaxed) != 0;
+}
+
+void set_function_patched(uint32_t entry, bool patched) {
+    const DirectTable& t = direct();
+    if (entry < t.lo || entry >= t.hi || (entry & 3)) return;
+    std::atomic<uint8_t>* flags = g_patch_flags.load(std::memory_order_acquire);
+    if (!flags) {
+        if (!patched) return;
+        // value-initialised (zero); never freed: emitted code may be reading it on any thread
+        auto* fresh = new std::atomic<uint8_t>[(t.hi - t.lo) / 4]();
+        std::atomic<uint8_t>* expected = nullptr;
+        if (g_patch_flags.compare_exchange_strong(expected, fresh)) flags = fresh;
+        else {
+            delete[] fresh;
+            flags = expected;
+        }
+    }
+    const uint8_t old = flags[(entry - t.lo) / 4].exchange(patched ? 1 : 0);
+    if (old && !patched) g_patched_functions.fetch_sub(1);
+    else if (!old && patched) g_patched_functions.fetch_add(1);
 }
 
 }  // namespace mh3u::ppc

@@ -1,5 +1,5 @@
 # The game executable: recompiled code + HLE runtime.
-set(boot_sources main.cpp profiler.cpp read_watch.cpp read_watch.h app_paths.cpp app_paths.h quests.cpp quests.h shader_prep.cpp shader_prep.h loading_screen.cpp loading_screen.h graphics_menu.cpp graphics_menu.h texture_dump.cpp texture_dump.h controls_menu.cpp controls_menu.h dlc_content.cpp dlc_content.h)
+set(boot_sources main.cpp profiler.cpp read_watch.cpp read_watch.h app_paths.cpp app_paths.h quests.cpp quests.h shader_prep.cpp shader_prep.h loading_screen.cpp loading_screen.h graphics_menu.cpp graphics_menu.h texture_dump.cpp texture_dump.h controls_menu.cpp controls_menu.h dlc_content.cpp dlc_content.h mods_ini.h enhanced_menu.cpp enhanced_menu.h menu_text.h)
 if(ANDROID)
   # libmain.so: SDL's Java activity (android/) loads it and calls SDL_main (main.cpp includes SDL_main.h there)
   add_library(mh3u SHARED ${boot_sources})
@@ -31,7 +31,7 @@ endif()
 if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/icon/icon.ico")
   target_sources(mh3u PRIVATE mh3u.rc)
 endif()
-target_link_libraries(mh3u PRIVATE mh3u_recomp_game mh3u_recomp_core mh3u_os mh3u_gfx mh3u_audio mh3u_core mh3u_fs mh3u_latte mh3u_game_src SDL3::SDL3)
+target_link_libraries(mh3u PRIVATE mh3u_recomp_game mh3u_recomp_core mh3u_os mh3u_gfx mh3u_audio mh3u_core mh3u_fs mh3u_latte mh3u_game_src mh3u_cheats SDL3::SDL3)
 if(WIN32)
   target_link_libraries(mh3u PRIVATE shell32 ole32)
   # SDL3.dll from the Vulkan SDK next to the executable
@@ -51,3 +51,7 @@ target_compile_definitions(mh3u PRIVATE MH3U_VERSION="${MH3U_VERSION}")
 
 add_executable(quests_test quests_test.cpp quests.cpp quests.h)
 add_test(NAME boot_quests COMMAND quests_test)
+
+# Cha-Cha-Enhanced: the Cheats / Texture Packs rows' text, and mods.ini (kept keys, the 0.1 file carried over)
+add_executable(menu_text_test menu_text_test.cpp menu_text.h mods_ini.h)
+add_test(NAME boot_menu_text COMMAND menu_text_test)

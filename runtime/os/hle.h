@@ -44,6 +44,7 @@ struct Runtime {
     gfx::Presenter* presenter = nullptr;  // Vulkan device (+ window unless headless); null if init failed
     std::filesystem::path data_dir;       // settings, saves, caches (runtime/boot/app_paths.h)
     std::filesystem::path shader_dir;     // translated shaders: <key>.<stage>.spv + .meta
+    void (*frame_hook)() = nullptr;       // once per frame on the game's thread, at GX2SwapScanBuffers (cheats)
 };
 
 Runtime& rt();

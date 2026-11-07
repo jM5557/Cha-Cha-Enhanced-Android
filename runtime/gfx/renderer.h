@@ -153,7 +153,9 @@ public:
                              int reflections) = 0;
     // Texture packs (<data>/texture_replacements, see texture_pack.h) on/off; any thread, from the next draw.
     virtual void set_texture_packs(bool on) = 0;
-    // Texture dumping (tex_<w>x<h>_<crc>.dds into <data>/texture_dump) on/off, and how many files it wrote.
+    // Which packs (folders of texture_replacements, texture_pack.h list_packs) are off; any thread, from the next frame.
+    virtual void set_texture_pack_selection(const std::vector<std::string>& disabled) = 0;
+    // Texture dumping (<hash>_<w>x<h>_fmt<f>_mip00.dds into <data>/texture_dump) on/off, and how many files it wrote.
     virtual void set_texture_dump(bool on) = 0;
     virtual uint64_t texture_dumps() const = 0;
 };

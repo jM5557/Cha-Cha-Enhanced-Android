@@ -37,6 +37,9 @@ struct EmitEnv {
     std::function<const std::vector<uint32_t>*(uint32_t)> switch_slots;
     // The b/bl at this site targets an undefined weak symbol ($UNDEF -> address 0).
     std::function<bool(uint32_t)> undefined_call;
+    // Start every function with the patched-code check (ppc_context.h): while a cheat has changed its instructions,
+    // the function runs from guest memory through ppc::interpret instead.
+    bool patch_hook = false;
 };
 
 // `words[i]` is the instruction at `start + 4*i`; `comment` is copied into the function header (e.g. symbol name).

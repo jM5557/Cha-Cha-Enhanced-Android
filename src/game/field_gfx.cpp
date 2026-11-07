@@ -20,6 +20,10 @@
 // neighbour with right presses (the game's tabs wrap). Its rows, Display Settings and Graphics Settings, open the
 // game's Options screen (walked to: Info, its Options row, A) with Cha-Cha's settings shown in it - one page of
 // the Graphics Settings page each - and its input ours too; B leaves it back to the CFG tab.
+//
+// Cha-Cha-Enhanced adds two rows, Cheats and Texture Packs, each a settings page of its own (FieldPage). A set with
+// more rows than the screen's seven goes over pages: left / right (or L / R) turn them while no value is being
+// changed, and the title says which page it is. Rows that are actions (SettingRow::action) run on A.
 #include "field_gfx.h"
 
 #include <algorithm>
@@ -67,10 +71,14 @@ constexpr TabRow kTabRows[] = {
     {"Camera Settings", "The quest camera: the Modern Camera and\r\nhow far back the camera sits."},
     {"Mods", "Cha-Cha's mods: gathering, delivery, quest\r\nmarkers, scaling, textures: on or off."},
 };
-constexpr int kTabRowCount = 4;
+constexpr int kFixedRows = 4;
+constexpr int kMaxTabRows = 6;  // the list's rows (the game's list has six)
+constexpr int kPerScreen = 7;   // the Options screen's rows
+int g_tab_rows = kFixedRows;    // the CFG tab's rows: the four above, then the extra pages
 
 SettingsPage g_page;
-std::vector<SettingRow> g_rows;  // the whole page; a set is one of its pages
+std::vector<FieldPage> g_extra;  // rows 4, 5: pages of their own
+std::vector<SettingRow> g_rows;  // the set's page: the whole Graphics page (sets 0-3) or an extra page's rows
 bool g_gfx = false;              // the CFG tab is open
 int g_tab_row = 0;               // its cursor
 int g_walk = -1;                 // the game's tab to reach (leaving CFG), by right presses
@@ -98,6 +106,13 @@ std::string help_text(const std::string& s) {  // the game's line breaks
     return out;
 }
 
+const std::string& tab_label(int row) {
+    static std::string fixed[kFixedRows];
+    if (row < kFixedRows) return fixed[row].empty() ? (fixed[row] = kTabRows[row].label) : fixed[row];
+    return g_extra[static_cast<size_t>(row - kFixedRows)].label;
+}
+std::string tab_help(int row) { return row < kFixedRows ? kTabRows[row].help : help_text(g_extra[static_cast<size_t>(row - kFixedRows)].help); }
+
 void sound(ppc::Context& ctx, uint8_t* base, uint32_t id) {
     const ppc::Context saved = ctx;
     ctx.r[1] -= 0x40;
@@ -107,14 +122,25 @@ void sound(ppc::Context& ctx, uint8_t* base, uint32_t id) {
     ctx = saved;
 }
 
+SettingsPage& set_page(int set) { return set >= kFixedRows ? g_extra[static_cast<size_t>(set - kFixedRows)].page : g_page; }
 int set_first(int set) {
-    if (set < 0 || set >= static_cast<int>(g_page.page_starts.size())) return 0;
+    if (set >= kFixedRows || set < 0 || set >= static_cast<int>(g_page.page_starts.size())) return 0;
     return g_page.page_starts[static_cast<size_t>(set)];
 }
-int set_size(int set) {
+int set_size(int set) {  // all its rows (shown seven at a time)
+    if (set >= kFixedRows) return static_cast<int>(g_rows.size());
     const int end = set + 1 < static_cast<int>(g_page.page_starts.size()) ? g_page.page_starts[static_cast<size_t>(set) + 1]
                                                                            : static_cast<int>(g_rows.size());
-    return std::clamp(end - set_first(set), 0, 7);
+    return std::max(end - set_first(set), 0);
+}
+// the screen of the set the cursor is on: its first row (in the set) and how many rows it shows
+int screen_first() { return g_cur / kPerScreen * kPerScreen; }
+int screen_rows() { return std::clamp(set_size(g_set) - screen_first(), 0, kPerScreen); }
+int screens() { return std::max(1, (set_size(g_set) + kPerScreen - 1) / kPerScreen); }
+void read_rows() {
+    SettingsPage& p = set_page(g_set);
+    if (p.rows) g_rows = p.rows();
+    g_cur = std::clamp(g_cur, 0, std::max(set_size(g_set) - 1, 0));
 }
 
 std::string value_text(const SettingRow& r) {
@@ -127,11 +153,31 @@ void step_value(ppc::Context& ctx, uint8_t* base, int step) {
     if (row < 0 || row >= static_cast<int>(g_rows.size())) return;
     SettingRow& r = g_rows[static_cast<size_t>(row)];
     const int n = static_cast<int>(r.values.size());
-    if (n < 2) return;
+    if (n < 2 || r.action) return;
     r.value = ((r.value + step) % n + n) % n;
-    if (g_page.change) g_page.change(row, r.value);
-    if (g_page.rows) g_rows = g_page.rows();
+    if (set_page(g_set).change) set_page(g_set).change(row, r.value);
+    read_rows();
     sound(ctx, base, kMoveSound);
+}
+
+// A on an action row: its page runs it
+bool is_action(int cur) {
+    const int row = set_first(g_set) + cur;
+    return row >= 0 && row < static_cast<int>(g_rows.size()) && g_rows[static_cast<size_t>(row)].action;
+}
+void activate(ppc::Context& ctx, uint8_t* base) {
+    sound(ctx, base, kDecideSound);
+    if (set_page(g_set).activate) set_page(g_set).activate(set_first(g_set) + g_cur);
+    read_rows();
+}
+
+// another screen of a long set, its first row selected
+void turn_screen(ppc::Context& ctx, uint8_t* base, int step) {
+    const int n = screens();
+    if (n < 2) return;
+    g_cur = (g_cur / kPerScreen + step + n) % n * kPerScreen;
+    g_opt_walk.reset();
+    sound(ctx, base, kTabSound);
 }
 
 void clear_pad(uint8_t* base, uint32_t pad, uint32_t keep) {  // the menu sees only `keep` (+0x6C bits) this frame
@@ -143,7 +189,7 @@ void clear_pad(uint8_t* base, uint32_t pad, uint32_t keep) {  // the menu sees o
 // The Options screen showing a set: our input.
 bool options_input(ppc::Context& ctx, uint8_t* base, uint32_t pad) {
     const uint32_t pressed = ppc::ld32(base, pad + kPressed), dirs = pressed | ppc::ld32(base, pad + kRepeat);
-    const int n = set_size(g_set);
+    const int first = screen_first(), n = screen_rows();  // up / down stay on the screen (wrapping), as on our pages
     clear_pad(base, pad, g_edit ? 0 : gui::kCancel);  // B leaves the screen (the game's own close), unless editing
     if (g_edit) {
         if (pressed & (gui::kDecide | gui::kCancel)) {
@@ -152,21 +198,26 @@ bool options_input(ppc::Context& ctx, uint8_t* base, uint32_t pad) {
         } else if (dirs & gui::kLeft) step_value(ctx, base, -1);
         else if (dirs & gui::kRight) step_value(ctx, base, +1);
     } else if (n > 0) {
-        if (dirs & gui::kUp) g_cur = (g_cur + n - 1) % n, sound(ctx, base, kMoveSound);
-        else if (dirs & gui::kDown) g_cur = (g_cur + 1) % n, sound(ctx, base, kMoveSound);
+        if (dirs & gui::kUp) g_cur = first + (g_cur - first + n - 1) % n, sound(ctx, base, kMoveSound);
+        else if (dirs & gui::kDown) g_cur = first + (g_cur - first + 1) % n, sound(ctx, base, kMoveSound);
+        else if ((pressed & gui::kDecide) && is_action(g_cur)) activate(ctx, base);
         else if (pressed & gui::kDecide) g_edit = true, sound(ctx, base, kDecideSound);
+        else if (pressed & (gui::kLeft | 0x900)) turn_screen(ctx, base, -1);    // left, L / ZL (settings_page's bits)
+        else if (pressed & (gui::kRight | 0x1200)) turn_screen(ctx, base, +1);  // right, R / ZR
     }
     // the pointer, as on the item pouch (HoverWalk): moving onto a row selects it; a click on the selected row's
     // value box steps it (left half back, right half on), elsewhere on it is A; a click on another row selects it
     if (float x = 0, y = 0; menu_pointer(x, y)) {
-        int hit = -1;
-        for (int i = 0; i < n; ++i)
-            if (x >= kOptX0 && x <= kOptX1 && y >= kOptY + kOptStep * i && y < kOptY + kOptStep * i + kOptH) hit = i;
-        if (const int d = g_edit ? 0 : g_opt_walk.step(x, y, hit, g_cur)) g_cur = (g_cur + d + n) % n, sound(ctx, base, kMoveSound);
+        int hit = -1;  // (a row of the set)
+        for (int i = 0; i < screen_rows(); ++i)
+            if (x >= kOptX0 && x <= kOptX1 && y >= kOptY + kOptStep * i && y < kOptY + kOptStep * i + kOptH) hit = screen_first() + i;
+        if (const int d = g_edit || n <= 0 ? 0 : g_opt_walk.step(x, y, hit, g_cur))
+            g_cur = first + (g_cur - first + d + n) % n, sound(ctx, base, kMoveSound);
         g_opt_walk.arrived(g_cur);
         while (menu_click()) {
             if (hit < 0) continue;
-            if (hit == g_cur && x >= kOptValueX) step_value(ctx, base, x < (kOptValueX + kOptX1) / 2 ? -1 : +1);
+            if (hit == g_cur && is_action(g_cur)) activate(ctx, base);
+            else if (hit == g_cur && x >= kOptValueX) step_value(ctx, base, x < (kOptValueX + kOptX1) / 2 ? -1 : +1);
             else if (hit == g_cur) g_edit = !g_edit, sound(ctx, base, kDecideSound);
             else if (!g_edit) g_opt_walk.click(hit);
         }
@@ -185,7 +236,7 @@ bool pad_hook(ppc::Context& ctx, uint8_t* base) {
     const bool options = base[menu + kView] == 1 && base[menu + kScreen] == kOptionsScreen;
     if (g_open >= 0 && options) {  // our set's Options screen is up
         g_set = g_open, g_open = -1, g_cur = 0, g_edit = false;
-        if (g_page.rows) g_rows = g_page.rows();
+        read_rows();
     }
     if (g_set >= 0) {
         if (options) return options_input(ctx, base, pad);
@@ -256,8 +307,8 @@ bool pad_hook(ppc::Context& ctx, uint8_t* base) {
     const auto open = [&](int set) {
         g_open = set, g_open_frames = 0;  // (the game's own A on Options plays its open sound)
     };
-    if (dirs & gui::kUp) g_tab_row = (g_tab_row + kTabRowCount - 1) % kTabRowCount, sound(ctx, base, kMoveSound);
-    else if (dirs & gui::kDown) g_tab_row = (g_tab_row + 1) % kTabRowCount, sound(ctx, base, kMoveSound);
+    if (dirs & gui::kUp) g_tab_row = (g_tab_row + g_tab_rows - 1) % g_tab_rows, sound(ctx, base, kMoveSound);
+    else if (dirs & gui::kDown) g_tab_row = (g_tab_row + 1) % g_tab_rows, sound(ctx, base, kMoveSound);
     else if (pressed & gui::kLeft) g_gfx = false, g_walk = tabs - 1, sound(ctx, base, kTabSound);
     else if (pressed & gui::kRight) g_gfx = false, g_walk = 0, sound(ctx, base, kTabSound);
     else if (pressed & gui::kDecide) open(g_tab_row);
@@ -265,10 +316,10 @@ bool pad_hook(ppc::Context& ctx, uint8_t* base) {
     // on another tab leaves to it
     if (menu_pointer(x, y)) {
         int hit = -1;
-        for (int i = 0; i < kTabRowCount; ++i)
+        for (int i = 0; i < g_tab_rows; ++i)
             if (x >= kRowX0 && x <= kRowX1 && y >= kRowY + kRowStep * i && y < kRowY + kRowStep * i + kRowH) hit = i;
         if (const int d = g_tab_walk.step(x, y, hit, g_tab_row))
-            g_tab_row = (g_tab_row + d + kTabRowCount) % kTabRowCount, sound(ctx, base, kMoveSound);
+            g_tab_row = (g_tab_row + d + g_tab_rows) % g_tab_rows, sound(ctx, base, kMoveSound);
         if (g_tab_walk.arrived(g_tab_row)) open(g_tab_row);
         while (menu_click()) {
             for (int i = 0; i < tabs; ++i)
@@ -299,21 +350,21 @@ PPC_FUNC(list_step) {
         const int ours = village ? 2 : tabs;  // (with Online there is no fourth plate yet)
         base[menu + kTab] = static_cast<uint8_t>(ours);
         ppc::st16(base, menu + kTab16, static_cast<uint16_t>(ours));
-        ppc::st16(base, menu + kRowCount, kTabRowCount);
+        ppc::st16(base, menu + kRowCount, static_cast<uint16_t>(g_tab_rows));
         ppc::st16(base, menu + kRowCursor, static_cast<uint16_t>(g_tab_row));
         for (int i = 0; i < 6; ++i) {
             const uint32_t row = menu + kRows + static_cast<uint32_t>(i) * kRowSize;
             std::memset(base + row, 0, kRowSize);
-            if (i >= kTabRowCount) continue;
+            if (i >= g_tab_rows) continue;
             base[row + 1] = i == g_tab_row;
             base[row + 2] = 1;
-            ppc::st32(base, row + 8, text(kTabRows[i].label));
+            ppc::st32(base, row + 8, text(tab_label(i)));
         }
     }
     sub_026615A8__orig(ctx, base);
     if (g_gfx) {  // our help (after the game's)
         const ppc::Context keep = ctx;
-        ctx.r[3] = ppc::ld32(base, gui::kSID), ctx.r[4] = text(kTabRows[g_tab_row].help), ctx.r[5] = 0;
+        ctx.r[3] = ppc::ld32(base, gui::kSID), ctx.r[4] = text(tab_help(g_tab_row)), ctx.r[5] = 0;
         sub_02144928(ctx, base);
         ctx = keep;
     }
@@ -327,34 +378,36 @@ PPC_FUNC(options_step) {
         sub_02664F74__orig(ctx, base);
         return;
     }
-    const int first = set_first(g_set), n = set_size(g_set);
-    if (g_cur >= n) g_cur = 0;
+    if (g_cur >= set_size(g_set)) g_cur = 0;
+    const int first = set_first(g_set) + screen_first(), n = screen_rows(), cur = g_cur - screen_first();
     uint8_t saved[0x200];
     std::memcpy(saved, base + view, sizeof saved);
     base[view + 1] = g_edit ? 1 : 0;
     for (int i = 0; i < 8; ++i) {
         const uint32_t row = view + 0xB0 + static_cast<uint32_t>(i) * kRowSize;
         base[row] = static_cast<uint8_t>(i < n ? 2 + i : 0x12);  // the game's options 2.. (texts ours); 0x12+ hidden
-        base[row + 1] = i == g_cur;
-        ppc::st32(base, row + 0xC, i == g_cur ? 0xFFBEE67Du : 0xFF7E8C6Eu);
+        base[row + 1] = i == cur;
+        ppc::st32(base, row + 0xC, i == cur ? 0xFFBEE67Du : 0xFF7E8C6Eu);
     }
-    base[view + 0x1F1] = static_cast<uint8_t>(2 + g_cur);
+    base[view + 0x1F1] = static_cast<uint8_t>(2 + cur);
     base[view + 0x1F2] = 7;  // every slot stepped: ours shown, the rest hidden (as past the game's last page)
     base[view + 0x1F4] = 0;
     base[view + 0x1F6] = 1;
     sub_02664F74__orig(ctx, base);
     std::memcpy(base + view, saved, sizeof saved);
     // our texts: title, labels, values, help
-    gui::set_text(ctx, base, ppc::ld32(base, self + 0x570), text(kTabRows[g_set].label));
+    const std::string title =
+        screens() > 1 ? tab_label(g_set) + "  " + std::to_string(g_cur / kPerScreen + 1) + "/" + std::to_string(screens()) : tab_label(g_set);
+    gui::set_text(ctx, base, ppc::ld32(base, self + 0x570), text(title));
     const uint32_t labels = ppc::ld32(base, self + 0x584);
     for (int i = 0; i < n; ++i) {
         const SettingRow& r = g_rows[static_cast<size_t>(first + i)];
-        if (labels) gui::set_text(ctx, base, ppc::ld32(base, labels + static_cast<uint32_t>(i) * 4), text(r.label));
+        if (labels) gui::set_text(ctx, base, ppc::ld32(base, labels + static_cast<uint32_t>(i) * 4), text(r.short_label.empty() ? r.label : r.short_label));
         if (const uint32_t v = ppc::ld32(base, self + (0x186 + static_cast<uint32_t>(i)) * 4)) gui::set_text(ctx, base, v, text(value_text(r)));
     }
     const ppc::Context keep = ctx;
-    if (g_cur < n) {
-        ctx.r[3] = ppc::ld32(base, gui::kSID), ctx.r[4] = text(help_text(g_rows[static_cast<size_t>(first + g_cur)].help)), ctx.r[5] = 0;
+    if (cur < n) {
+        ctx.r[3] = ppc::ld32(base, gui::kSID), ctx.r[4] = text(help_text(g_rows[static_cast<size_t>(first + cur)].help)), ctx.r[5] = 0;
         sub_02144960(ctx, base);
         ctx = keep;
     }
@@ -362,8 +415,11 @@ PPC_FUNC(options_step) {
 
 }  // namespace
 
-void register_field_gfx(SettingsPage page) {
+void register_field_gfx(SettingsPage page, std::vector<FieldPage> extra) {
     g_page = std::move(page);
+    if (extra.size() > static_cast<size_t>(kMaxTabRows - kFixedRows)) extra.resize(kMaxTabRows - kFixedRows);
+    g_extra = std::move(extra);
+    g_tab_rows = kFixedRows + static_cast<int>(g_extra.size());
     ppc::set_override(0x026615A8, &list_step);
     ppc::set_override(0x02664F74, &options_step);
     set_field_menu_hook(&pad_hook);

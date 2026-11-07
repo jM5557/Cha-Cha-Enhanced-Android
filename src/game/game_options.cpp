@@ -1,6 +1,7 @@
 // Game Options with Cha-Cha's own boxes: a second column on the right of the title's Game Options screen (Monitor /
 // Sound / Effect / Controller / Game / Language Settings), mirrored about the screen's centre, with Graphics Settings
-// (Phase 5.5, user 2026-11-04; Texture Dump moved to DLC > Mods 2026-11-05). Always on.
+// (Phase 5.5, user 2026-11-04; Texture Dump moved to DLC > Mods 2026-11-05), and Cha-Cha-Enhanced's Cheats and
+// Texture Packs pages below them. Always on.
 //
 // Replaces: FUN_02763A88 (the start menu's Game Options state, uIDStartMenu +0x2A0 == 8: sub-state +0x290, 2 = the
 // list; cursor +0x2D8, copied to +0x2D4 and to uIDOption +0x330; up / down step it with sound 3, A opens the page with
@@ -57,9 +58,12 @@ struct Item {
 constexpr Item kItems[] = {
     {"Display Settings", "Change how the game is shown: window,\r\nresolution, frame rate."},
     {"Graphics Settings", "Change how the game looks."},
+    {"Cheats", "Switch the cheats of the cheat file on\r\nand off (Cemu-Enhanced's format)."},
+    {"Texture Packs", "Switch each texture pack on and off,\r\nand dump the textures you see."},
 };  // (Texture Dump moved to the DLC screen's Mods list, 2026-11-05: it runs on the game's download screen)
 constexpr int kItemCount = static_cast<int>(std::size(kItems));
-enum { kDisplay = 0, kGraphics = 1 };
+static_assert(kItemCount == kGameOptionsItems, "game_options.h: the menu pointer's boxes");
+enum { kDisplay = 0, kGraphics = 1, kCheats = 2, kTextures = 3 };
 constexpr int kControllerRow = 3;  // the game's Controller Settings (left column): our controller remapping instead
 constexpr int kKeyboardRow = 4;    // the game's Game Settings (left column): Keyboard Settings, our keyboard remapping
 constexpr const char* kKeyboardLabel = "Keyboard Settings";
@@ -158,6 +162,8 @@ void choose(ppc::Context& ctx, uint8_t* base, uint32_t sm, int item) {
     std::printf("game options: %s chosen\n", kItems[item].label);
     if (item == kDisplay) open_page(ctx, base, sm, &g_pages.display, 1, item);
     else if (item == kGraphics) open_page(ctx, base, sm, &g_pages.graphics, 1, item);
+    else if (item == kCheats && g_pages.cheats.rows) open_page(ctx, base, sm, &g_pages.cheats, 1, item);
+    else if (item == kTextures && g_pages.textures.rows) open_page(ctx, base, sm, &g_pages.textures, 1, item);
 }
 
 // Game Options (r3 = uIDStartMenu)

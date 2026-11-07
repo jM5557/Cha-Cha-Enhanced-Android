@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <string>
+#include <vector>
 
 namespace mh3u::os {
 struct Runtime;
@@ -18,6 +20,8 @@ void precompile_pipelines(const std::function<void(size_t, size_t)>& progress);
 void set_effects(bool tri_look, bool ambient_occlusion, bool depth_of_field, bool vignette, int global_illumination, int reflections);
 // Texture replacement packs (<data>/texture_replacements) on/off, live.
 void set_texture_packs(bool on);
+// The packs switched off (names from texpack::list_packs), live.
+void set_texture_pack_selection(const std::vector<std::string>& disabled);
 // Texture dumping into <data>/texture_dump (files named for texture packs), live; files written so far.
 void set_texture_dump(bool on);
 uint64_t texture_dumps();

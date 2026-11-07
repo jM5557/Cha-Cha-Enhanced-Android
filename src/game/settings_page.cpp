@@ -66,6 +66,18 @@ constexpr float kHeaderY = (kPlaqueY0 + kPlaqueY1) / 2 - 1;  // the page name an
 const SettingsPage* g_page = nullptr;
 bool g_shown = false;  // the page has run (its step was called)
 std::vector<SettingRow> g_rows;
+// the page's pages: its page_starts / page_titles, or made from the rows (SettingsPage::rows_per_page)
+std::vector<int> g_starts;
+std::vector<std::string> g_titles;
+void layout_pages() {
+    if (g_page->rows_per_page <= 0) {
+        g_starts = g_page->page_starts, g_titles = g_page->page_titles;
+        return;
+    }
+    g_starts.assign(1, 0);
+    for (int r = g_page->rows_per_page; r < static_cast<int>(g_rows.size()); r += g_page->rows_per_page) g_starts.push_back(r);
+    g_titles.assign(g_starts.size(), g_page->page_titles.empty() ? std::string() : g_page->page_titles[0]);
+}
 int g_cursor = 0;
 uint32_t g_owner = 0;  // the uIDOption the copies below belong to
 std::vector<uint32_t> g_label_copies, g_value_copies;
@@ -143,14 +155,13 @@ uint32_t instance(uint8_t* base, uint32_t opt, int index) {
 
 int page_of(int row) {
     int p = 0;
-    for (size_t i = 0; i < g_page->page_starts.size(); ++i)
-        if (row >= g_page->page_starts[i]) p = static_cast<int>(i);
+    for (size_t i = 0; i < g_starts.size(); ++i)
+        if (row >= g_starts[i]) p = static_cast<int>(i);
     return p;
 }
-int page_start(int p) { return g_page->page_starts.empty() ? 0 : g_page->page_starts[static_cast<size_t>(p)]; }
+int page_start(int p) { return g_starts.empty() ? 0 : g_starts[static_cast<size_t>(p)]; }
 int page_end(int p) {
-    return p + 1 < static_cast<int>(g_page->page_starts.size()) ? g_page->page_starts[static_cast<size_t>(p) + 1]
-                                                               : static_cast<int>(g_rows.size());
+    return p + 1 < static_cast<int>(g_starts.size()) ? g_starts[static_cast<size_t>(p) + 1] : static_cast<int>(g_rows.size());
 }
 
 const std::string& value_name(const SettingRow& r) {
@@ -192,7 +203,15 @@ void update_copies(ppc::Context& ctx, uint8_t* base, uint32_t opt) {
 void refresh_rows(ppc::Context& ctx, uint8_t* base) {
     if (!g_page->rows) return;
     std::vector<SettingRow> fresh = g_page->rows();
-    if (fresh.size() != g_rows.size()) return;
+    if (fresh.size() != g_rows.size()) {  // rows came or went (a list page): new copies for all, the cursor kept in range
+        if (fresh.empty()) return;
+        g_rows = std::move(fresh);
+        layout_pages();
+        g_cursor = std::min(g_cursor, static_cast<int>(g_rows.size()) - 1);
+        g_label_copies.clear(), g_value_copies.clear();
+        if (g_owner) update_copies(ctx, base, g_owner);
+        return;
+    }
     for (size_t i = 0; i < fresh.size() && i < g_value_copies.size(); ++i) {
         if (value_name(fresh[i]) != value_name(g_rows[i])) gui::set_clone_text(ctx, base, g_value_copies[i], str(value_name(fresh[i])));
         if (fresh[i].label != g_rows[i].label) gui::set_clone_text(ctx, base, g_label_copies[i], str(fresh[i].label));
@@ -242,7 +261,7 @@ void page_sound(ppc::Context& ctx, uint8_t* base) {
 
 // L / R or a click on the title: the next (+1) or previous (-1) page, its first row selected
 void turn_page(ppc::Context& ctx, uint8_t* base, int step) {
-    const int pages = static_cast<int>(g_page->page_starts.size());
+    const int pages = static_cast<int>(g_starts.size());
     if (pages < 2) return;
     g_cursor = page_start((page_of(g_cursor) + (step > 0 ? 1 : pages - 1)) % pages);
     page_sound(ctx, base);
@@ -260,6 +279,7 @@ PPC_FUNC(page_step) {
     if (!g_shown) {
         g_shown = true;
         g_rows = g_page->rows ? g_page->rows() : std::vector<SettingRow>{};
+        layout_pages();
         g_cursor = 0;
     }
     if (g_rows.empty()) return;
@@ -294,7 +314,7 @@ PPC_FUNC(page_step) {
         if (g_walk.arrived(g_cursor) && g_rows[static_cast<size_t>(g_cursor)].action) activate(ctx, base);
         // the page plaque (drawn when there are pages): a click on its left half (the back arrow) turns back, on its
         // right half (the on arrow) on
-        const bool on_header = g_page->page_starts.size() > 1 && x >= kPlaqueX0 - 8 && x <= kPlaqueX1 + 8 &&
+        const bool on_header = g_starts.size() > 1 && x >= kPlaqueX0 - 8 && x <= kPlaqueX1 + 8 &&
                                y >= kPlaqueY0 - 8 && y <= kPlaqueY1 + 8;
         while (menu_click())
             if (on_header) turn_page(ctx, base, x < (kPlaqueX0 + kPlaqueX1) / 2 ? -1 : 1);
@@ -359,7 +379,7 @@ bool draw(ppc::Context& ctx, uint8_t* base, uint32_t inst) {
         ppc::st32(base, r + 0xB8, bottom), ppc::st32(base, r + 0xBC, bottom);
         gui::draw_object(ctx, base, ab[0], r);
     };
-    const bool paged = g_page->page_starts.size() > 1;
+    const bool paged = g_starts.size() > 1;
     if (g_box) {  // the box behind the rows (first: under everything of ours)
         int n = 0;
         // a soft shadow: two layers, offset down-right, the outer one wider and fainter
@@ -417,8 +437,10 @@ bool draw(ppc::Context& ctx, uint8_t* base, uint32_t inst) {
 }
 
 std::string header_name(int pg) {
-    std::string name = static_cast<size_t>(pg) < g_page->page_titles.size() ? g_page->page_titles[static_cast<size_t>(pg)] + "  " : "";
-    return name + std::to_string(pg + 1) + "/" + std::to_string(g_page->page_starts.size());
+    std::string name = static_cast<size_t>(pg) < g_titles.size() && !g_titles[static_cast<size_t>(pg)].empty()
+                           ? g_titles[static_cast<size_t>(pg)] + "  "
+                           : "";
+    return name + std::to_string(pg + 1) + "/" + std::to_string(g_starts.size());
 }
 
 }  // namespace

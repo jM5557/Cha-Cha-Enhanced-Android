@@ -12,6 +12,7 @@
 #include "inflate.h"
 #include "overlay_fs.h"
 #include "mods.h"
+#include "mods_ini.h"
 
 namespace mh3u::boot {
 namespace stdfs = std::filesystem;
@@ -220,10 +221,16 @@ void DlcContent::load_mods() {
 }
 
 void DlcContent::save_mods() const {
-    std::ofstream out(data_ / "mods" / "mods.ini", std::ios::trunc);
-    out << "# Cha-Cha mods (main menu > DLC > Mods): 1 on, 0 off\n";
+    // the switches of game/mods.h; other keys (the cheats' and texture packs' switches, mods_ini.h) are kept
+    ModsIni lines;
     for (int m = 0; m < static_cast<int>(game::Mod::Count); ++m)
-        out << game::mod_info(static_cast<game::Mod>(m)).key << "=" << (game::mod_enabled(static_cast<game::Mod>(m)) ? 1 : 0) << "\n";
+        lines.emplace_back(game::mod_info(static_cast<game::Mod>(m)).key, game::mod_enabled(static_cast<game::Mod>(m)) ? "1" : "0");
+    ModsIni others = read_mods_ini(mods_ini_path(data_));
+    std::erase_if(others, [&](const auto& kv) { return std::any_of(lines.begin(), lines.end(), [&](const auto& l) { return l.first == kv.first; }); });
+    std::ofstream out(mods_ini_path(data_), std::ios::trunc);
+    out << "# Cha-Cha mods (main menu > DLC > Mods): 1 on, 0 off\n";
+    for (const auto& [k, v] : lines) out << k << "=" << v << "\n";
+    for (const auto& [k, v] : others) out << k << "=" << v << "\n";
 }
 
 std::vector<quests::Quest> DlcContent::scan(bool official) const {

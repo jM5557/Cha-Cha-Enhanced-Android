@@ -84,6 +84,21 @@ Every mod is also in the pause menu's CFG tab > Mods (On / Off), on quests too: 
   Cancel download (B or a click) stops it. Files go to `<data>/texture_dump` as
   `tex_<w>x<h>_<CRC32>.dds`, ready to make texture packs from (`docs/texture-packs.md`). Files already there are kept.
 
+### Cha-Cha-Enhanced: Cheats and Texture Packs
+
+Two more pages sit in the title screen's Options → Game Options (right column, under Display and Graphics Settings)
+and in the pause menu's CFG tab (under Mods):
+
+- **Cheats**: every cheat in `<data>/cheats/0005000010118300.txt` (Cemu-Enhanced's format; jM5557's MH3U cheats
+  are written there on the first start), Off / On, and **All Cheats**, the master switch (`cheats=on|off`).
+  [docs/cheats.md](cheats.md).
+- **Texture Packs**: the Texture Packs mod above, **Dump What You See** (dumps named as Cemu-Enhanced names them),
+  and each folder of `<data>/texture_replacements`, Off / On (`texpack.<name>=off`).
+  [docs/texture-packs.md](texture-packs.md).
+
+Their switches are kept in the same `<data>/mods/mods.ini`, after the mods' lines; the DLC screen keeps them when it
+saves. Cha-Cha-Enhanced 0.1 kept them in `<data>/mods.ini`: they are carried over once at the first start.
+
 Everything here works with the menu pointer: hovering moves the cursor, a click chooses, the L / R page arrows
 turn pages (only shown with more rows than a page holds: five), and a click closes the game's notices.
 

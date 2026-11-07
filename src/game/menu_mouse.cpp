@@ -394,10 +394,11 @@ const std::vector<Screen>& screens() {
         slot.jump = true;  // Character Select's slots and cursor
         v.push_back(slot);
         // Game Options: Monitor, Sound, Effect, Controller, Keyboard (the game's Game Settings), Language, then
-        // Cha-Cha's right column (Display / Graphics Settings; game_options.cpp), its mirror about x 960; items 6, 7
+        // Cha-Cha's right column (Display / Graphics Settings, Cheats, Texture Packs; game_options.cpp), its mirror
+        // about x 960; items 6 on
         Screen options{"game options", Source::OptionPage, 8, 0x330, 2, false, true, rows(6, 175, 790, 190, 92, 106)};
-        for (const Box& b : rows(2, 1130, 1745, 190, 92, 106)) options.items.push_back(b);  // 175-790 mirrored
-        for (int i = 0; i < 8; ++i) options.grid.push_back({i < 6 ? i : i - 6, i / 6});
+        for (const Box& b : rows(kGameOptionsItems, 1130, 1745, 190, 92, 106)) options.items.push_back(b);  // 175-790 mirrored
+        for (int i = 0; i < 6 + kGameOptionsItems; ++i) options.grid.push_back({i < 6 ? i : i - 6, i / 6});
         v.push_back(options);
         // Sound Settings: Music / SFX volume, 7 bars (levels 0-7 at +0x360 / +0x364)
         Screen sound{"sound", Source::OptionPage, 18, 0x368, 4, false, false, {{354, 366, 1590, 495}, {354, 600, 1590, 729}}};

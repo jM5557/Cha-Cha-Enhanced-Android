@@ -1,59 +1,101 @@
 # Texture packs
 
-Cha-Cha can replace any of the game's textures with DDS files. Code: `runtime/gfx/texture_pack.*` (folder index, DDS
-read/write), `VkRenderer::replace_texture` in `runtime/gfx/renderer.cpp`.
+Cha-Cha replaces the game's textures with DDS files while it runs. Packs work the way they do in Cemu-Enhanced: the
+same file names, the same `textures.ini` and the same hash. A pack moves between the two unchanged.
 
-## Where
+## Where packs go
 
-`<data folder>/texture_replacements/`. The data folder is `%APPDATA%\Cha-Cha` for a release, `data\` next to the exe
-in portable mode, and the repo root when run from a source checkout. The folder is created at start. Each pack can
-sit in its own subfolder, nested as deep as you like. When two files replace the same texture, the one whose path
-sorts last wins. `MH3U_TEXTURE_DIR` points runs elsewhere.
-
-Settings → VIDEO → **TEXTURE PACKS** switches them on and off while the game runs.
-
-## File names
+The data folder is `%APPDATA%\Cha-Cha` for a release, `data\` next to the exe in portable mode, and the repo root
+when run from a source checkout. `MH3U_TEXTURE_DIR` points runs elsewhere.
 
 ```
-tex_<width>x<height>_<CRC32>.dds          e.g. tex_256x256_1A2B3C4D.dds
-tex_<width>x<height>_<CRC32><anything>.dds   (text after the CRC is ignored: tex_256x256_1A2B3C4D_hunter_face.dds)
+<data folder>/texture_replacements/
+  My Pack/...                        each folder is a pack
+  0005000010118300/Other Pack/...    Cemu-Enhanced's load/textures/<title id>/<pack> folders, copied as they are
+  *.dds                              loose files: always used, any pack overrides them
 ```
 
-- `width` x `height` is the game texture's size.
-- `CRC32` is taken over its level 0 exactly as it sits in Wii U memory (GX2-tiled), so the name is the same on
-  every machine and every run.
-- Don't work these out by hand: **dump** the textures and copy the files you change.
+The **Texture Packs** page lists the packs, each with Off / On. It is on the title screen's **Options → Game
+Options** (right column) and in the pause menu's **CFG** tab. The choice is saved in `<data folder>/mods/mods.ini` as
+`texpack.<name>=off`, and a pack not listed is on. Switching one applies from the next frame. A pack added while the
+game runs shows (and is used) the next time the page opens. **Texture Packs** at the top of the page is the Texture
+Packs mod (also in DLC → Mods and CFG → Mods): replacement on and off as a whole. **Open Texture Folder** at the end
+opens the folder on Windows and Linux.
 
-## Dumping
+Where two packs that are on replace the same texture, the pack whose name sorts first wins (the order in the
+list). The log names the overlap. Subfolders inside a pack are fine.
 
-**The whole game at once:** main menu > DLC > Mods, then **X Texture Dump** (or Y, or a click on it), Yes; Cancel download stops it. Every texture in every
-archive is written to `<data folder>/texture_dump/` under its replacement name while the game's download screen shows
-how far it is; files already there are kept. Or, for only what you see:
+## Making a pack
 
-Settings → VIDEO → **DUMP TEXTURES**. It starts at once and applies to this session only. Every texture the game uses
-from then on is written to `<data folder>/texture_dump/` under its replacement name, including textures already
-loaded, the next time they are drawn. Toasts show the folder and a running count. For runs, `MH3U_DUMP_TEXTURES=1`
-does the same, and `MH3U_DUMP_TEXTURES=<folder>` writes somewhere else.
+1. Dump the textures, one of two ways:
+   - **What you see:** turn on **Dump What You See** on the Texture Packs page and play to where the texture
+     appears. Every texture the game draws is saved to `<data folder>/texture_dump` as a DDS file named after its
+     content hash, as Cemu-Enhanced names its dumps:
 
-- **Formats.** Dumps are DDS level 0 in the game's own format: BC1 / BC3 (DXT1 / DXT5), or RGBA8. They open in
-  Paint.NET, GIMP and texconv.
-- **Not dumped:**
-  - videos and other textures the CPU rewrites every frame;
-  - cube maps;
-  - render targets.
+     ```
+     22fb5c1e481b3338_1280x720_fmt0031_mip00.dds
+     ```
 
-## The replacement
+     That is the 16-digit hash, the size, the GX2 surface format and the mip level. It starts at once and lasts for
+     this session; textures already loaded are dumped the next time they are drawn, and the row's help counts the
+     files. For runs, `MH3U_DUMP_TEXTURES=1` does the same, and `MH3U_DUMP_TEXTURES=<folder>` writes somewhere
+     else. Use these names for packs you want to share with Cemu-Enhanced players.
+   - **The whole game at once:** main menu → DLC → Mods, then **X Texture Dump** (or Y, or a click on it), Yes;
+     Cancel download stops it. Every texture in every archive is written to `<data folder>/texture_dump` while the
+     game's download screen shows how far it is; files already there are kept. These files carry Cha-Cha's names,
+     `tex_<w>x<h>_<CRC32>.dds` (below): they load in Cha-Cha, but not in Cemu-Enhanced.
 
-- **Format.** Any size and aspect ratio works, though keeping the original's aspect ratio is wise. Supported formats:
-  - BC1, BC2, BC3, BC4, BC5, BC7, from a DX10 header or the DXT1/3/5, ATI1/2 FourCCs;
-  - RGBA8 / BGRA8.
-- **Mips.** Include them in the file, or the texture shimmers in the distance. Only the levels that are present are
-  used.
-- **Colour space.** sRGB vs UNORM follows the original texture, not the file.
-- **Loading.** A replacement is loaded the first time its texture is uploaded, and again when the game reloads it.
+   Dumps are level 0 in the game's own format (BC1–BC5 or RGBA8) and open in Paint.NET, GIMP and texconv. Videos and
+   other textures the CPU rewrites every frame, cube maps and render targets are not dumped.
+2. Edit the ones you want. Keep the name and put the files in a pack folder. Include mipmaps, or the texture
+   shimmers in the distance: only the levels that are present are used.
 
-## 3DS packs
+## textures.ini: any file names
 
-Packs made for Monster Hunter 3 Ultimate on 3DS don't load. Their file names are hashes of 3DS texture data, which
-never match the Wii U textures, and Cha-Cha has no converter for them and won't get one. Packs are game art: keep them
-out of git (`texture_replacements/` and `texture_dump/` are ignored).
+A `textures.ini` at the top of a pack lets you name and arrange the files however you like (PPSSPP's format):
+
+```ini
+[hashes]
+# Menus
+22fb5c1e481b3338 = menu/background1.dds
+22fb5c1e481b3338_1280x720_fmt0031_mip01 = menu/background1_mip1.dds
+
+[filtering]
+22fb5c1e481b3338 = linear
+6a0d3c21f9e4b7a5 = nearest
+```
+
+- **Keys** are the 16-digit hash (mip 0, whose DDS can carry the whole mip chain), or a whole dump name to give a
+  single mip level its own file.
+- **Paths** are relative to the pack and must stay inside it. `/` and `\` both work.
+- `#` starts a comment. Within a pack, a `textures.ini` entry beats a file named by its hash.
+- **[filtering]** forces how the game samples a texture: `nearest` (sharp pixels, for fonts and pixel art), `linear`,
+  or `auto` (the game's own). It applies whether or not the pack also replaces the texture.
+- Lines that don't make sense (a key that is not a hash, a missing file, a path outside the pack, an unknown
+  filter) are skipped and named in the log.
+
+## The hash
+
+The hash covers every byte of the texture's level 0 as it sits in guest memory: GX2-tiled, over the surface's
+image size. It is mixed with the pixel count, the GX2 surface format and that size, so textures with the same bytes
+but a different shape never match. It is bit-identical to Cemu-Enhanced's (`gfx_texture_packs` checks known
+values). Packs made before Cemu-Enhanced mixed the surface in, which are named by the plain content hash, still
+load, but only for a texture whose size and format match what their file names record.
+
+The hash names cover the formats Cemu-Enhanced replaces: BC1–BC5 (block-compressed) and RGBA8. Cha-Cha's older names
+also still load. These are `tex_<width>x<height>_<CRC32>[anything].dds`, the CRC32 of the same level-0 bytes.
+
+## Notes
+
+- DDS formats: BC1–BC5 and BC7, from a DX10 header or the DXT1/3/5 and ATI1/2 FourCCs, and RGBA8 / BGRA8. sRGB vs
+  UNORM follows the original texture, whatever the file says.
+- A replacement may be larger than the original (keeping the aspect ratio is wise), and its format may differ.
+- A replacement is loaded the first time its texture is uploaded, and again when the game reloads it. Textures the
+  game rewrites every frame (CPU animations) and render targets are not replaced.
+- Packs made for Monster Hunter 3 Ultimate on 3DS don't load: their names are hashes of 3DS texture data, which never
+  match the Wii U textures.
+- Packs are game art: keep them out of git (`texture_replacements/` and `texture_dump/` are ignored).
+
+Code: `runtime/gfx/texture_pack.*` (hash, packs, `textures.ini`; `texture_pack_test`), `replace_texture()` and the
+sampler override in `runtime/gfx/renderer.cpp`, the whole-game dump in `runtime/boot/texture_dump.cpp`, the Texture
+Packs page in `runtime/boot/enhanced_menu.cpp`.

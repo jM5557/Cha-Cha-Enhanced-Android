@@ -420,6 +420,7 @@ struct Image {
     std::unique_ptr<Image> depth_alias;  // R32F render target sampled with depth compare
     std::unique_ptr<Image> snapshot;     // copy for draws that sample their own render target
     std::unique_ptr<Image> replacement;  // texture pack image sampled instead (replace_texture())
+    uint8_t filter = 0;                  // texpack::Filter from a pack's textures.ini [filtering], replaced or not
     uint64_t uploaded_frame = ~0ull;     // last upload: a texture re-uploaded every frame is not looked up in packs
     // bumped by transition() into a writable layout (every render, clear, copy or upload goes through one);
     // depth_alias is refreshed only when this changed since its last copy
@@ -568,6 +569,10 @@ private:
     std::map<std::string, uint64_t> skip_reasons_;
     // texture packs (MH3U_TEXTURE_DIR, on/off MH3U_TEXTURE_PACKS / set_texture_packs) and dumping (MH3U_DUMP_TEXTURES)
     texpack::Library packs_;
+    std::filesystem::path pack_root_;
+    std::mutex packs_m_;
+    std::set<std::string> disabled_packs_;  // the Texture Packs page (packs_m_)
+    std::atomic<bool> packs_dirty_{false};  // the selection changed: scan again at the end of the frame
     std::filesystem::path dump_dir_;
     std::set<uint64_t> dumped_;
     std::atomic<bool> want_packs_{true};
@@ -581,6 +586,12 @@ private:
     void replace_texture(Image& img, const GuestSurface& s, const FormatDesc& fd, size_t image_bytes, const std::vector<uint8_t>& level0,
                          uint32_t row_elements);
     void set_texture_packs(bool on) override { want_packs_ = on; }
+    void set_texture_pack_selection(const std::vector<std::string>& disabled) override {
+        std::lock_guard g(packs_m_);
+        disabled_packs_ = std::set<std::string>(disabled.begin(), disabled.end());
+        packs_dirty_ = true;
+    }
+    void scan_packs();
 
     void warn(const std::string& w) {
         if (warned_.insert(w).second) std::fprintf(stderr, "renderer: %s\n", w.c_str());
@@ -1402,26 +1413,52 @@ void VkRenderer::init_packs() {
         if (std::string(env) != "1") dump_dir_ = std::filesystem::path(reinterpret_cast<const char8_t*>(env));
     }
     std::free(env);
-    if (!dir.empty()) {
-        const auto t0 = std::chrono::steady_clock::now();
-        const size_t n = packs_.scan(dir);
-        if (n)
-            std::printf("renderer: %zu replacement textures in %s (%.0f ms)%s\n", n, reinterpret_cast<const char*>(dir.u8string().c_str()),
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
-                        want_packs_ ? "" : ", switched off");
+    // packs switched off on the Texture Packs page: MH3U_TEXTURE_PACKS_OFF = names separated by '|'
+    if (_dupenv_s(&env, &len, "MH3U_TEXTURE_PACKS_OFF") == 0 && env) {
+        std::stringstream ss(env);
+        for (std::string n; std::getline(ss, n, '|');)
+            if (!n.empty()) disabled_packs_.insert(n);
     }
+    std::free(env);
+    pack_root_ = dir;
+    scan_packs();
     if (want_dump_) std::printf("renderer: dumping textures to %s\n", reinterpret_cast<const char*>(dump_dir_.u8string().c_str()));
 }
 
-// After an upload: the texture's level-0 CRC names its replacement (tex_<w>x<h>_<crc>.dds) and its dump file.
+void VkRenderer::scan_packs() {
+    if (pack_root_.empty()) return;
+    std::set<std::string> off;
+    {
+        std::lock_guard g(packs_m_);
+        off = disabled_packs_;
+    }
+    const auto t0 = std::chrono::steady_clock::now();
+    std::vector<std::string> warnings;
+    const size_t n = packs_.scan(pack_root_, off, &warnings);
+    for (const auto& w : warnings) warn("texture packs: " + w);
+    if (n || packs_.filters())
+        std::printf("renderer: %zu replacement textures, %zu filter settings in %s (%.0f ms)%s%s\n", n, packs_.filters(),
+                    reinterpret_cast<const char*>(pack_root_.u8string().c_str()),
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
+                    off.empty() ? "" : (", " + std::to_string(off.size()) + " pack(s) off").c_str(), want_packs_ ? "" : ", switched off");
+}
+
+// After an upload: the texture's content hash names its replacement and its dump file
+// (<hash16>_<w>x<h>_fmt<XXXX>_mip00.dds, as Cemu-Enhanced names them); Cha-Cha's older tex_<w>x<h>_<crc>.dds names
+// are looked up too.
 void VkRenderer::replace_texture(Image& img, const GuestSurface& s, const FormatDesc& fd, size_t image_bytes,
                                  const std::vector<uint8_t>& level0, uint32_t row_elements) {
-    const uint32_t crc = texpack::crc32(base_ + s.image, image_bytes);
+    const bool hashable = texpack::hashable_format(s.format);
+    const uint64_t raw = hashable ? texpack::content_hash_raw(base_ + s.image, image_bytes) : 0;
+    const uint64_t hash = hashable ? texpack::content_hash(raw, static_cast<uint32_t>(image_bytes), s.width * s.height, s.format) : 0;
+    img.filter = hashable ? static_cast<uint8_t>(packs_.filter(hash, raw)) : 0;
     if (dumping_ && !level0.empty()) {
         const uint32_t dxgi = dump_dxgi(fd.vk);
-        const uint64_t k = uint64_t{s.width} << 48 | uint64_t{s.height} << 32 | crc;
+        const uint32_t crc = hashable ? 0 : texpack::crc32(base_ + s.image, image_bytes);
+        const uint64_t k = hashable ? hash : (uint64_t{s.width} << 48 | uint64_t{s.height} << 32 | crc);
         if (dxgi && dumped_.insert(k).second) {
-            const std::filesystem::path file = dump_dir_ / texpack::file_name(s.width, s.height, crc);
+            const std::filesystem::path file =
+                dump_dir_ / (hashable ? texpack::hash_file_name(hash, s.width, s.height, s.format) : texpack::file_name(s.width, s.height, crc));
             std::error_code ec;
             if (!std::filesystem::exists(file, ec)) {
                 // crop the padded rows to the texture's own size
@@ -1434,13 +1471,26 @@ void VkRenderer::replace_texture(Image& img, const GuestSurface& s, const Format
             }
         }
     }
-    const std::filesystem::path* file = packs_.find(s.width, s.height, crc);
+    const uint64_t key = hashable ? packs_.resolve(hash, raw, s.width, s.height, s.format) : 0;
+    const std::filesystem::path* file = key ? packs_.file(key, 0) : nullptr;
+    if (!file && packs_.has_crc_names()) file = packs_.find(s.width, s.height, texpack::crc32(base_ + s.image, image_bytes));
     if (!file) return;
     texpack::Dds dds;
     std::string err;
     if (!texpack::read_dds(*file, dds, &err)) {
         warn(file->filename().string() + ": " + err);
         return;
+    }
+    // further levels as files of their own (<hash>_..._mip01.dds, ...), when the level-0 file has no chain for them
+    for (uint32_t level = dds.levels; key && level < texture_levels(s); ++level) {
+        const std::filesystem::path* mf = packs_.file(key, static_cast<int>(level));
+        texpack::Dds m;
+        if (!mf || !texpack::read_dds(*mf, m, nullptr) || m.dxgi != dds.dxgi || m.width != std::max(1u, dds.width >> level) ||
+            m.height != std::max(1u, dds.height >> level))
+            break;
+        dds.offsets.push_back(dds.data.size());
+        dds.data.insert(dds.data.end(), m.data.begin(), m.data.begin() + static_cast<std::ptrdiff_t>(texpack::level_bytes(m.dxgi, m.width, m.height)));
+        ++dds.levels;
     }
     const VkFormat vf = dxgi_format(dds.dxgi, (s.format & 0x400) != 0);  // the game's sRGB-ness, whatever the file says
     if (vf == VK_FORMAT_UNDEFINED || !(features(vf) & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
@@ -1465,6 +1515,7 @@ void VkRenderer::replace_texture(Image& img, const GuestSurface& s, const Format
                            copies.data());
     r->surf = s;
     r->base_swizzle = fd.swizzle;
+    r->filter = img.filter;
     img.replacement = std::move(r);
     ++n_replaced_;
 }
@@ -1530,7 +1581,7 @@ Image* VkRenderer::texture(const TextureBinding& t, uint32_t sampler_type) {
             img->hash = h;
             // packs replace plain 2D textures; one re-uploaded in consecutive frames is CPU-animated: not looked up
             const bool dynamic = img->uploaded_frame + 1 == frame_;
-            const bool lookup = (packs_.size() || dumping_) && type == VK_IMAGE_TYPE_2D && !cube && !dynamic;
+            const bool lookup = (!packs_.empty() || dumping_) && type == VK_IMAGE_TYPE_2D && !cube && !dynamic;
             std::vector<uint8_t> level0;
             uint32_t row = 0;
             upload_surface(*img, s, fd, type == VK_IMAGE_TYPE_1D ? 1 : layers, lookup && dumping_ ? &level0 : nullptr, &row);
@@ -2410,7 +2461,10 @@ void VkRenderer::draw(const DrawState& st, const DrawCall& call) {
             else if (vt == VK_IMAGE_VIEW_TYPE_1D) vt = VK_IMAGE_VIEW_TYPE_2D;  // mismatched target: avoid an invalid view
             if (vt == VK_IMAGE_VIEW_TYPE_CUBE && !img->cube) vt = VK_IMAGE_VIEW_TYPE_2D;
             transition(*img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            imgs[i] = {sampler(st.stage[s].samp[slot], shadow), view(*img, vt, swz, aspect), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            SamplerState smp = st.stage[s].samp[slot];
+            if (img->filter == 1) smp.words[0] &= ~(3u << 14);  // a pack's [filtering]: nearest (mag and min)
+            else if (img->filter == 2) smp.words[0] |= 3u << 14;  // linear
+            imgs[i] = {sampler(smp, shadow), view(*img, vt, swz, aspect), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
             VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             w.dstSet = sets[s];
             w.dstBinding = abi::sampler_binding(slot);
@@ -3513,6 +3567,14 @@ Renderer::Frame VkRenderer::end_frame() {
     }
     recording_ = false;
     ++frame_;
+    if (packs_dirty_.exchange(false)) {  // the Texture Packs page changed which packs are on: every texture looks again
+        scan_packs();
+        for (auto& [k, t] : textures_) {
+            if (t->replacement) fc().garbage.push_back(std::move(t->replacement));
+            t->filter = 0;
+            t->hash ^= 1;
+        }
+    }
     if (want_dump_ != dumping_) {
         dumping_ = want_dump_;
         if (dumping_)  // textures already cached are dumped at their next use (a changed hash re-uploads them)

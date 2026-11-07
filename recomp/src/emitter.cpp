@@ -498,6 +498,7 @@ EmitResult emit_function(uint32_t entry, const std::vector<CodeRange>& ranges_in
     if (ranges.size() > 1) o << " (" << ranges.size() << " ranges)";
     o << "\n";
     o << "PPC_FUNC(" << function_name(entry) << ") {\n";
+    if (env.patch_hook) o << "    PPC_PATCH_HOOK(" << hex32(entry) << "u)\n";  // patched code (cheats) runs interpreted
     if (!entry_first) o << "    goto " << label(entry) << ";\n";
     for (const Item& it : items) {
         std::string stmt;

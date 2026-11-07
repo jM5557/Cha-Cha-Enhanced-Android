@@ -44,6 +44,11 @@ Our own recompiler (decision in `CLAUDE.md`). Pipeline, as it gets built:
   `ppc::trap` (report + stop) when it holds. Calls to `$UNDEF` weak symbols call address 0 through `call_indirect`
   (reported if ever reached; the crt tests these pointers first). `.syscall` (0x02000000, `nop; blr`) is emitted as
   a function: crt code calls it.
+- **Patched code (cheats)**: every function starts with `PPC_PATCH_HOOK(entry)` - while the cheat engine has flagged
+  the function (its instructions in guest memory differ from the executable), it runs through `ppc::interpret`
+  (`support/interpreter.cpp`, the same semantics per op; `interp_selftest` compares the two on every self-test
+  function) instead. One relaxed load per call while nothing is patched. `function_table.cpp` also carries every
+  function's body ranges (`kFunctionRanges`) so a patched word maps to its function(s). See `docs/cheats.md`.
 - Output (`recomp/out/`): `recomp_00..63.cpp`, `functions.h` (all declarations), `stubs.cpp` (rejected functions →
   `unimplemented_function(addr)` with the reason as a comment), `imports.cpp`, `function_table.cpp` (all 88,225
   `{addr, fn}` sorted – for indirect calls), `emit_report.txt`.

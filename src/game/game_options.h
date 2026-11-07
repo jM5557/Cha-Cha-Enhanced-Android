@@ -13,7 +13,11 @@ struct GameOptionsPages {
     SettingsPage graphics;  // Graphics Settings (right column)
     SettingsPage controls;  // Controller Settings: Cha-Cha's controller remapping in place of the game's page
     SettingsPage keyboard;  // Keyboard Settings: keyboard + mouse remapping, in place of the game's Game Settings
+    SettingsPage cheats;    // Cheats (right column, Cha-Cha-Enhanced): the cheat file's cheats
+    SettingsPage textures;  // Texture Packs (right column, Cha-Cha-Enhanced): the packs, and dumping what is seen
 };
+// The right column's boxes: Display, Graphics Settings, Cheats, Texture Packs (the game's column has six).
+constexpr int kGameOptionsItems = 4;
 void register_game_options(GameOptionsPages pages);
 
 // The right column's cursor for the menu pointer: -1 while the cursor is in the game's own column.

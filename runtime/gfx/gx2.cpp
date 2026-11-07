@@ -1003,6 +1003,7 @@ GX2_FUNC(GX2SwapScanBuffers) {
     ++g_swap_count;
     ++g_timestamp;
     const uint32_t n = ++rt().frames;
+    if (rt().frame_hook) rt().frame_hook();  // cheats: once per frame, between two of the game's frames
     {
         StateLock g;
         g_last_draws.swap(g_frame_draws);
@@ -1197,6 +1198,10 @@ void set_effects(bool tri_look, bool ambient_occlusion, bool depth_of_field, boo
 
 void set_texture_packs(bool on) {
     if (g_renderer) g_renderer->set_texture_packs(on);
+}
+
+void set_texture_pack_selection(const std::vector<std::string>& disabled) {
+    if (g_renderer) g_renderer->set_texture_pack_selection(disabled);
 }
 
 void set_texture_dump(bool on) {

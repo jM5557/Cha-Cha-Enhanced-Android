@@ -11,10 +11,19 @@ if(WIN32)
 elseif(ANDROID)  # the NDK's shaderc, built by scripts/build-android.ps1
   target_include_directories(mh3u_latte PUBLIC . ${CMAKE_SOURCE_DIR}/runtime/gfx PRIVATE "${MH3U_ANDROID_DEPS}/include")
   target_link_libraries(mh3u_latte PRIVATE "${MH3U_ANDROID_DEPS}/lib/libshaderc_combined.a")
-else()  # the Linux SDK: x86_64/{include,lib}
+elseif(DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/lib/libshaderc_combined.a")
+  # the LunarG Linux SDK (x86_64/{include,lib}): shaderc with glslang and SPIRV-Tools in one static library
   target_include_directories(mh3u_latte PUBLIC . ${CMAKE_SOURCE_DIR}/runtime/gfx PRIVATE "$ENV{VULKAN_SDK}/include")
   find_package(Threads REQUIRED)
   target_link_libraries(mh3u_latte PRIVATE "$ENV{VULKAN_SDK}/lib/libshaderc_combined.a" Threads::Threads)
+else()
+  # no SDK: the distribution's shaderc (Arch: shaderc, Debian / Ubuntu: libshaderc-dev). Its libshaderc_combined.a
+  # leaves glslang out, so the shared library is used; package-appimage.sh bundles it.
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(SHADERC REQUIRED IMPORTED_TARGET shaderc)
+  message(STATUS "shaderc: the system's (${SHADERC_LINK_LIBRARIES})")
+  target_include_directories(mh3u_latte PUBLIC . ${CMAKE_SOURCE_DIR}/runtime/gfx)
+  target_link_libraries(mh3u_latte PRIVATE PkgConfig::SHADERC)
 endif()
 
 add_executable(shaderc-latte main.cpp)

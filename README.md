@@ -21,6 +21,7 @@
   <a href="#whats-new-compared-to-the-original">What's new</a> ·
   <a href="#the-dlc-screen-quests-and-mods">DLC and mods</a> ·
   <a href="#texture-packs">Texture packs</a> ·
+  <a href="#cheats">Cheats</a> ·
   <a href="#whats-next">What's next</a> ·
   <a href="#building-from-source">Building</a>
 </p>
@@ -112,6 +113,10 @@ Switch them in the main menu's **DLC → Mods** or in the in-game menu's **CFG �
 - **Effects the original never had:** global illumination and screen-space reflections on water (each with a Lite mode for
   weaker GPUs), ambient occlusion, an enhanced depth of field and a vignette, each optional. The game's own bloom and
   depth of field can be switched off.
+- **Texture packs**, switched on and off one by one, and texture dumping to make them; packs made for Cemu-Enhanced
+  work as they are ([see below](#texture-packs)).
+- **Cheats:** Gateway-style codes in Cemu-Enhanced's cheat file format, switched on the Cheats page; jM5557's MH3U
+  quality-of-life cheats come bundled ([see below](#cheats)).
 - **Controls your way:** keyboard and mouse, or any controller SDL supports, played as a Wii U Pro Controller. Every
   button can be rebound, and the pages show which button does what for your controller (Xbox, PlayStation or
   Nintendo names).
@@ -137,10 +142,14 @@ You don't have to go back to the title screen to change anything:
 | **Graphics Settings** | Look (Original or Tri), Bloom, Depth of Field, Ambient Occlusion, Global Illumination, Reflections, Vignette |
 | **Camera Settings** | Modern Camera (on / off), Camera Distance (the game's own up to 200 %) |
 | **Mods** | Quest Scaling, Auto Carve, Texture Packs, Instant Gathering, Instant Carve, Auto Delivery, Key Quest Markers |
+| **Cheats** | Every cheat in your cheat file, on or off, and All Cheats ([see below](#cheats)) |
+| **Texture Packs** | The Texture Packs mod, Dump What You See, and each pack on or off ([see below](#texture-packs)) |
 
 Left / right (or a click on a value) changes it, and it is saved at once; most changes show straight away, while
-Internal Resolution, Frame Rate Limit and VSync apply the next time you start. **B** goes back. Display and Graphics
-Settings are also in the title screen's Options → Game Options, next to Controller and Keyboard Settings.
+Internal Resolution, Frame Rate Limit and VSync apply the next time you start. **B** goes back. Lists longer than
+seven rows (Cheats, Texture Packs) go over pages: left / right or L / R turn them. Display and Graphics Settings,
+Cheats and Texture Packs are also in the title screen's Options → Game Options, next to Controller and Keyboard
+Settings.
 
 <p align="center">
   <img src="docs/images/0.2.0/game-options.jpg" width="49%" alt="Game Options with Display Settings and Graphics Settings in a second column">
@@ -225,19 +234,46 @@ Quest numbers and details: [docs/mods.md](docs/mods.md). Quest files are game da
 
 ## Texture packs
 
-**Using a pack:** put the DDS files in `<data folder>/texture_replacements` (subfolders are fine). The **Texture
-Packs** mod switches them on and off while you play.
+**Using a pack:** put each pack in its own folder in `<data folder>/texture_replacements`. The **Texture Packs** page
+(Options → Game Options, or the in-game menu's CFG tab) switches each pack on and off while you play, and its first
+row is the Texture Packs mod, replacement as a whole. Where two packs replace the same texture, the one listed first
+wins. Packs made for Cemu-Enhanced work as they are: the same file names, `textures.ini` (any file names, plus
+`[filtering]` nearest / linear per texture) and the same texture hash. Its `load/textures/<title id>/<pack>` folders
+can be copied in whole. DDS files straight in the folder are always used.
 
 **Making a pack:**
 
-1. In the main menu open **DLC → Mods** and choose **Texture Dump** (X). Every texture in the game is written to
-   `<data folder>/texture_dump` as a DDS file, already named for replacement: `tex_<width>x<height>_<CRC32>.dds`.
-   The game's download bar shows how far it is; Cancel stops it.
-2. Edit the ones you want. Keep the name (you may add text after the CRC), include mipmaps, and copy them into
-   `texture_replacements`.
+1. Dump the textures:
+   - **What you see:** turn on **Dump What You See** on the Texture Packs page. Every texture the game draws from
+     then on is saved to `<data folder>/texture_dump` as a DDS file named after its content hash, as Cemu-Enhanced
+     names them: `<hash>_<width>x<height>_fmt<format>_mip00.dds`. It lasts until you quit.
+   - **The whole game:** in the main menu open **DLC → Mods** and choose **Texture Dump** (X). Every texture in the
+     game is written to `<data folder>/texture_dump` as `tex_<width>x<height>_<CRC32>.dds`, Cha-Cha's own names. The
+     game's download bar shows how far it is; Cancel stops it.
+2. Edit the ones you want. Keep the name, include mipmaps, and put them in a pack folder. Or list them under any
+   name in the pack's `textures.ini`.
 
-Packs made for the 3DS version don't match the Wii U textures and won't load. Details:
-[docs/texture-packs.md](docs/texture-packs.md).
+Packs with Cha-Cha's older `tex_<width>x<height>_<CRC32>.dds` names still load. Packs made for the 3DS version
+don't match the Wii U textures and won't load. Details: [docs/texture-packs.md](docs/texture-packs.md).
+
+## Cheats
+
+The **Cheats** page (Options → Game Options, or the in-game menu's CFG tab, also on a quest) lists the cheats in
+`<data folder>/cheats/0005000010118300.txt`, the same file format Cemu-Enhanced and Citra use (`[name]`, `{notes}`,
+`*cemu_enabled`, Gateway code lines). Switch one on and it runs from the next frame. Switch it off and the game's
+original code comes back, so the *DISABLE* cheats aren't needed (the page lists them only while they are on).
+**All Cheats** at the top turns every cheat off at once. Edit the file with any text editor (**Open Cheat Folder**
+at the end of the page); the page shows the changes the next time it opens.
+
+On the first start the file is filled with [jM5557's MH3U cheats](https://github.com/jM5557/MH3U-Cemu-Cheats) for
+the US game, with their quality-of-life cheats on: full equipment box in Port Tanzia, hold A to carve / gather,
+smooth vertical camera, skip the quest end timer, send all rewards to the box, longer knockback, sharpening cancel,
+interruptible flex, no reward timer. The experimental ones and *Many Zenny* start off. Hold A to carve duplicates
+the Auto Carve mod: keep one of the two on.
+
+Most of these cheats rewrite the game's PowerPC code. Cha-Cha runs every function a cheat has changed through a small
+interpreter of its own, and everything else stays native. Addresses are for the US v32 game. Details and limits:
+[docs/cheats.md](docs/cheats.md).
 
 ## What's next
 
@@ -250,12 +286,47 @@ Packs made for the 3DS version don't match the Wii U textures and won't load. De
 
 ## Building from source
 
-The build translates **your own dump's** executable into C++, so put a dump in place first.
+The build translates **your own dump's** executable into C++, so the executable has to be there when you build. That
+is one file, the US v32 `MH3G_Cafe_US.rpx` of a few MB. The rest of the game is only needed when you run Cha-Cha.
+
+### Linux and SteamOS
+
+On SteamOS, whose system is read-only, build in a distrobox (preinstalled since SteamOS 3.5); on any other
+distribution (Arch, Ubuntu / Debian, Fedora) skip this step:
+
+```bash
+distrobox create -n chacha -i ubuntu:24.04
+distrobox enter chacha          # your home folder is shared with it
+```
+
+Then, in a checkout:
+
+```bash
+scripts/install-deps-linux.sh                       # clang, CMake, Ninja, Vulkan, shaderc, FFmpeg, SDL3's dependencies
+scripts/build-linux.sh --wua ~/path/to/mh3u.wua     # or: --rpx ~/path/to/MH3G_Cafe_US.rpx
+scripts/package-appimage.sh                         # build/release/Cha-Cha-<version>-x86_64.AppImage
+```
+
+- `--wua` takes the executable out of your `.wua` (it builds [ZArchive](https://github.com/Exzap/ZArchive) on first
+  use). `--rpx` takes the file itself: the update's `code/MH3G_Cafe_US.rpx` (title `0005000E10118300`, for example
+  `mlc01/usr/title/0005000e/10118300/code/` in a Cemu install). Either way it is checked against the US v32
+  executable and copied to `extracted/0005000e10118300_v32/code/MH3G_Cafe_US.elf`, so later builds need neither
+  option. The EU and JP releases won't work: the code, and the cheat addresses, are the US v32 executable's.
+- The build dir defaults to `~/cha-cha-build`. The generated game code takes a while to compile and about 1-2 GB of
+  memory per compiler: `JOBS=4` limits the parallel compilers (the default follows the free memory). `--tests` also
+  builds and runs the tests.
+- shaderc comes from the distribution; the LunarG Vulkan SDK in `/opt/vulkan/<version>/x86_64` (or `$VULKAN_SDK`) is
+  used instead when present.
+- Run `~/cha-cha-build/runtime/boot/Cha-Cha`, or the AppImage: `chmod +x` it, and on a Steam Deck add it to Steam as a
+  non-Steam game for Gaming Mode. On its first start it asks for your game (the `.wua`, or the game folders).
+
+More: [docs/linux.md](docs/linux.md).
+
+### Windows
 
 1. Put your dump at `game/mh3u.wua` ([game/README.md](game/README.md)), then run
    `powershell -File scripts/extract.ps1` and `powershell -File scripts/fingerprint.ps1`.
-2. **Windows:** Visual Studio 2026 with "Desktop development with C++" and the Vulkan SDK
-   ([tools/README.md](tools/README.md)):
+2. Visual Studio 2026 with "Desktop development with C++" and the Vulkan SDK ([tools/README.md](tools/README.md)):
 
    ```
    cmake -S . -B build/cmake
@@ -265,8 +336,7 @@ The build translates **your own dump's** executable into C++, so put a dump in p
 
    A clang-cl build (`cmake -S . -B build/clang -T ClangCL`) compiles the generated code faster.
    `scripts/package-release.ps1` makes the release zip.
-3. **Linux** (or WSL2 on Windows): clang 15+, Ninja, CMake 3.25+, the LunarG Vulkan SDK, `libvulkan-dev`,
-   `libavcodec-dev` and SDL3's build dependencies. `scripts/build-linux.sh` builds it, `scripts/package-appimage.sh`
+3. **Linux** (or WSL2 on Windows): see [Linux and SteamOS](#linux-and-steamos) above; `scripts/package-appimage.sh`
    makes the AppImage and the tarball ([docs/linux.md](docs/linux.md)).
 4. **Android** (from Windows): Android Studio with NDK 30 and CMake 4.1.2, plus WSL2 for FFmpeg; with the Windows
    build configured, `scripts/build-android.ps1` makes the APK ([docs/android.md](docs/android.md)).
@@ -283,9 +353,10 @@ code, translated from your executable at build time.
 | `game/`, `extracted/` | Your dump, and its unpacked contents | no |
 | `config/` | Target hashes, symbol map, function list, known structures | yes |
 | `recomp/` | The recompiler; `recomp/out/` is the generated C++ | source only |
-| `runtime/` | The PC layer replacing the Wii U system: `os`, `gfx` (GX2 on Vulkan), `audio`, `input`, `fs`, `boot` | yes |
+| `runtime/` | The PC layer replacing the Wii U system: `os`, `gfx` (GX2 on Vulkan), `audio`, `input`, `fs`, `boot`, `cheats` | yes |
 | `src/` | Hand-written game code: item sets, mods, the camera, Cha-Cha's menu pages… | yes |
 | `android/` | The Android app around the game library (SDL's activity, manifest, Gradle) | yes |
+| `assets/cheats/` | The bundled MH3U US cheat file (jM5557's, written to the data folder on the first start) | yes |
 | `tools/`, `scripts/`, `ghidra/` | Shader translator, helper scripts, reverse-engineering scripts | yes |
 | `docs/` | Formats, the runtime and engine, mods, input, Linux, Android, online notes | yes |
 | `build/` | Build output | no |
@@ -300,6 +371,8 @@ How the port works: [docs/runtime.md](docs/runtime.md), [docs/engine.md](docs/en
 - **Dusklight**: the Twilight Princess PC port whose front end Cha-Cha's first front end followed.
 - **Yakumo**: the asset-free release model Cha-Cha follows: a release build plus your own dump, nothing from the
   game shipped.
+- **jM5557**: the MH3U cheats bundled with Cha-Cha, and Cemu-Enhanced, whose cheat file format and texture pack
+  format (names, `textures.ini`, content hash) Cha-Cha reads.
 - **Ghidra**, for reverse engineering.
 - **Libraries:** SDL3, zstd, the Vulkan SDK (shaderc, glslang, SPIRV-Tools; on Android the NDK's shaderc), FFmpeg's
   libavcodec on Linux and Android ([docs/release/THIRD_PARTY_NOTICES.md](docs/release/THIRD_PARTY_NOTICES.md)).

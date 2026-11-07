@@ -14,6 +14,10 @@ app="$build/AppDir"
 tools="$HOME/.cache/cha-cha-tools"
 bin="$build/runtime/boot/Cha-Cha"
 [ -x "$bin" ] || { echo "no Linux build at $bin - run scripts/build-linux.sh first" >&2; exit 1; }
+# tools linuxdeploy / appimagetool call (appimagetool stops late, after the whole AppDir is made, without `file`)
+for t in file curl python3; do
+    command -v "$t" >/dev/null 2>&1 || { echo "$t is missing - run scripts/install-deps-linux.sh" >&2; exit 1; }
+done
 
 rm -rf "$app"
 mkdir -p "$app/usr/bin" "$app/usr/share/applications" "$app/usr/share/icons/hicolor/256x256/apps" "$app/usr/share/doc/cha-cha" "$out" "$tools"
@@ -84,7 +88,7 @@ cp "$app/usr/share/doc/cha-cha/"* "$tar_stage/"
 sed "s/{VERSION}/$version/" "$src/docs/release/README-linux.txt" > "$tar_stage/README.txt"
 cp "$app/usr/share/icons/hicolor/256x256/apps/cha-cha.png" "$tar_stage/"
 # nothing may still resolve outside lib/ except the system libraries linuxdeploy leaves out on purpose
-if ldd "$tar_stage/Cha-Cha" | grep -E 'libav|libsw|libSDL3' | grep -v "$tar_stage/lib/"; then
+if ldd "$tar_stage/Cha-Cha" | grep -E 'libav|libsw|libSDL3|libshaderc' | grep -v "$tar_stage/lib/"; then
     echo "tarball binary does not load its bundled libraries" >&2
     exit 1
 fi

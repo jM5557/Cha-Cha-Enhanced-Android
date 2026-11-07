@@ -41,15 +41,23 @@ add_custom_command(
   COMMAND emit_selftest_gen ${CMAKE_CURRENT_BINARY_DIR}/selftest_funcs.cpp
   DEPENDS emit_selftest_gen tests/selftest_cases.h
   COMMENT "Emitting self-test functions")
-add_executable(emit_selftest tests/emit_selftest.cpp ${CMAKE_CURRENT_BINARY_DIR}/selftest_funcs.cpp)
-target_include_directories(emit_selftest PRIVATE tests)
-target_link_libraries(emit_selftest PRIVATE mh3u_ppc_context mh3u_recomp_support)
+# the emitted functions, shared by the tests that run them (also runtime/cheats' cheats_test)
+add_library(mh3u_selftest_funcs OBJECT ${CMAKE_CURRENT_BINARY_DIR}/selftest_funcs.cpp)
+target_link_libraries(mh3u_selftest_funcs PUBLIC mh3u_ppc_context)
+target_include_directories(mh3u_selftest_funcs INTERFACE tests)
+add_executable(emit_selftest tests/emit_selftest.cpp)
+target_link_libraries(emit_selftest PRIVATE mh3u_selftest_funcs mh3u_ppc_context mh3u_recomp_support)
 add_test(NAME emit_selftest COMMAND emit_selftest)
+# Interpreter (patched code, cheats) against the same emitted functions: identical results, and the patch hook.
+add_executable(interp_selftest tests/interp_selftest.cpp)
+target_link_libraries(interp_selftest PRIVATE mh3u_selftest_funcs mh3u_ppc_context mh3u_recomp_support)
+add_test(NAME interp_selftest COMMAND interp_selftest)
 
 # Real game code: recomp_emit writes recomp/out (emitted functions, stubs for the rest, import stubs, function
 # table); everything is compiled into mh3u_recomp_game and linked by link_check. Empty without the user's dump.
-add_library(mh3u_recomp_support STATIC support/unimplemented.cpp support/indirect.cpp support/imports.cpp)
-target_link_libraries(mh3u_recomp_support PUBLIC mh3u_ppc_context)
+add_library(mh3u_recomp_support STATIC support/unimplemented.cpp support/indirect.cpp support/imports.cpp
+  support/interpreter.cpp)
+target_link_libraries(mh3u_recomp_support PUBLIC mh3u_ppc_context PRIVATE mh3u_recomp_core)  # the decoder
 
 # where the generated C++ goes (a Linux build in WSL keeps its own copy on the Linux disk)
 set(MH3U_RECOMP_OUT ${CMAKE_SOURCE_DIR}/recomp/out CACHE PATH "Generated game code")

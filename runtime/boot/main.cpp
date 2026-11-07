@@ -38,6 +38,9 @@
 #include "text_trace.h"
 #include "loading_screen.h"
 #include "shader_prep.h"
+#include "mods_ini.h"
+#include "cheats.h"
+#include "enhanced_menu.h"
 #include "game_image.h"
 #include "guest_memory.h"
 #include "hle.h"
@@ -79,6 +82,10 @@
 #endif
 
 namespace stdfs = std::filesystem;
+
+// generated function_table.cpp: every recompiled function's body ranges (the cheat engine maps patched code to them)
+extern const mh3u::ppc::FunctionRange kFunctionRanges[];
+extern const size_t kFunctionRangeCount;
 using namespace mh3u;
 
 namespace {
@@ -167,6 +174,39 @@ bool map_sections(core::GuestMemory& mem, const recomp::Image& img) {
         std::printf("  mapped %-10s %08X-%08X\n", s.name.c_str(), s.addr, s.addr + s.size);
     }
     return true;
+}
+
+// Cheats (runtime/cheats): the code caves they write into, the executable's code as it is (patched functions are
+// told apart from it), the real targets of import call sites for the interpreter, and the cheat file -
+// <data>/cheats/0005000010118300.txt, the bundled one on the first start. Runs once per frame from GX2SwapScanBuffers.
+void setup_cheats(core::GuestMemory& mem, const recomp::Image& img, const boot::AppPaths& paths) {
+    if (!mem.commit(cheats::kCaveBase, cheats::kCaveEnd - cheats::kCaveBase)) {
+        std::fprintf(stderr, "cheats: cannot map the code cave region\n");
+        return;
+    }
+    uint32_t code_end = core::layout::kCodeBase;
+    for (const auto& s : img.elf.sections)
+        if (s.addr >= core::layout::kCodeBase && s.addr < core::layout::kDataBase && s.type == 1)
+            code_end = std::max(code_end, s.addr + s.size);
+    std::vector<uint8_t> pristine(mem.base() + core::layout::kCodeBase, mem.base() + code_end);
+    std::vector<uint32_t> sites, targets;
+    for (const auto& [site, idx] : img.import_calls) {
+        sites.push_back(site);
+        targets.push_back(img.imports[idx].stub);
+    }
+    for (uint32_t site : img.undefined_refs) {
+        sites.push_back(site);
+        targets.push_back(0);
+    }
+    ppc::set_interpreter_branch_targets(sites.data(), targets.data(), sites.size());
+    cheats::Engine& e = cheats::engine();
+    e.attach(mem.base(), [&mem](uint32_t a, uint32_t n) { return mem.committed(a) && mem.committed(a + n - 1); },
+             core::layout::kCodeBase, std::move(pristine), kFunctionRanges, kFunctionRangeCount);
+    const stdfs::path file = cheats::file_for(paths.data / "cheats");
+    if (cheats::install_bundled(file)) std::printf("cheats: wrote the bundled cheat file to %s\n", file.string().c_str());
+    e.set_enabled(boot::mods_value(boot::read_mods_ini(boot::mods_ini_path(paths.data)), "cheats", "on") != "off");
+    e.set_cheats(cheats::load(file));
+    os::rt().frame_hook = [] { cheats::engine().run_frame(); };
 }
 
 struct Args {
@@ -283,6 +323,7 @@ std::unique_ptr<boot::GraphicsMenu> g_graphics;  // Game Options > Graphics Sett
 boot::TextureDump g_texture_dump;                 // Game Options > Texture Dump
 std::unique_ptr<boot::ControlsMenu> g_controls;   // Game Options > Controller Settings (our controller remapping)
 std::unique_ptr<boot::ControlsMenu> g_keys;       // Game Options > Keyboard Settings (keyboard + mouse remapping)
+std::unique_ptr<boot::EnhancedMenu> g_enhanced;   // Game Options and CFG: Cheats, Texture Packs (Cha-Cha-Enhanced)
 
 // Checking the window without a screen: MH3U_SHOT="s1,s2,..." writes what the window shows at those seconds after
 // start to <repo>/build/shot_<s>.bmp.
@@ -459,6 +500,8 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "cannot commit guest memory regions\n");
         return 1;
     }
+    boot::migrate_mods_ini(paths.data);  // Cha-Cha-Enhanced 0.1's <data>/mods.ini switches
+    setup_cheats(mem, *img, paths);
 
     os::Runtime& r = os::rt();
     r.mem = &mem;
@@ -557,9 +600,14 @@ int main(int argc, char** argv) {
     g_graphics = std::make_unique<boot::GraphicsMenu>(paths, headless ? nullptr : &presenter, settings, [](const boot::Settings&) {});
     g_controls = std::make_unique<boot::ControlsMenu>(boot::ControlsMenu::Kind::Controller);
     g_keys = std::make_unique<boot::ControlsMenu>(boot::ControlsMenu::Kind::Keyboard);
-    game::register_game_options({g_graphics->display_page(), g_graphics->graphics_page(), g_controls->page(), g_keys->page()});
+    g_enhanced = std::make_unique<boot::EnhancedMenu>(paths.data, [] { dlc_content.save_mods(); });
+    game::register_game_options({g_graphics->display_page(), g_graphics->graphics_page(), g_controls->page(), g_keys->page(),
+                                 g_enhanced->cheats_page(), g_enhanced->textures_page()});
     g_graphics->set_mods_saved([] { dlc_content.save_mods(); });
-    game::register_field_gfx(g_graphics->page());  // the field menu's CFG tab: Display / Graphics / Camera Settings, Mods
+    // the field menu's CFG tab: Display / Graphics / Camera Settings, Mods, then Cheats and Texture Packs
+    game::register_field_gfx(g_graphics->page(),
+                             {{"Cheats", "The cheat file's cheats, on or off;\nthey run from the next frame.", g_enhanced->cheats_page()},
+                              {"Texture Packs", "Each texture pack on or off, and\ndumping the textures you see.", g_enhanced->textures_page()}});
     if (char* v = nullptr; _dupenv_s(&v, &frames_len, "MH3U_DUMP_ALL_TEXTURES") == 0 && v) {  // the whole dump at boot (checks)
         g_texture_dump.start(vfs, std::string(v) == "1" ? paths.data / "texture_dump" : stdfs::path(reinterpret_cast<const char8_t*>(v)));
         std::free(v);
@@ -616,6 +664,11 @@ int main(int argc, char** argv) {
             _putenv_s("MH3U_TEXTURE_DIR", reinterpret_cast<const char*>(u.c_str()));
         }
         std::free(v);
+        // packs switched off on the Texture Packs page (mods/mods.ini texpack.<name>=off; enhanced_menu.cpp)
+        std::string off;
+        for (const auto& [k, val] : boot::read_mods_ini(boot::mods_ini_path(paths.data)))
+            if (k.rfind("texpack.", 0) == 0 && val == "off") off += (off.empty() ? "" : "|") + k.substr(8);
+        _putenv_s("MH3U_TEXTURE_PACKS_OFF", off.c_str());
     }
     if (!headless) presenter.refresh_swapchain();  // VSync may have changed since the window opened
     r.data_dir = paths.data;

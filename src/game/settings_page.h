@@ -16,6 +16,7 @@ struct SettingRow {
     std::vector<std::string> values;  // left / right cycle through them; an action row shows values[0]
     int value = 0;
     bool action = false;              // A (or a click) on it calls SettingsPage::activate instead of leaving the page
+    std::string short_label;          // for the field menu's narrower rows (field_gfx.cpp), when label is too long
 };
 struct SettingsPage {
     std::string title;
@@ -25,6 +26,9 @@ struct SettingsPage {
     std::function<void(int row, int value)> change;    // a row's value changed (guest thread; applied at once)
     std::function<void(int row)> activate;             // A on an action row (guest thread)
     bool live = false;                                 // rows() read again every frame (values change by themselves)
+    // > 0: page_starts are ignored and the rows go over pages of this many, however many rows() gives (lists such as
+    // the cheats); every page is titled page_titles[0] if there is one
+    int rows_per_page = 0;
 };
 
 namespace settings_page {

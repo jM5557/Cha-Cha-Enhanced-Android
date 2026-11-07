@@ -12,10 +12,19 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 #include <cstring>
 
 // Signature of every recompiled function.
 #define PPC_FUNC(name) void name([[maybe_unused]] mh3u::ppc::Context& ctx, [[maybe_unused]] uint8_t* base)
+// First statement of every recompiled function (EmitEnv::patch_hook): while a cheat has changed its instructions, run
+// them from guest memory instead ("patched code" below). One relaxed load while nothing is patched.
+#define PPC_PATCH_HOOK(entry)                                                                                        \
+    if (::mh3u::ppc::g_patched_functions.load(std::memory_order_relaxed) && ::mh3u::ppc::function_patched(entry)) \
+        [[unlikely]] {                                                                                               \
+        ::mh3u::ppc::interpret(ctx, base, entry);                                                                    \
+        return;                                                                                                      \
+    }
 
 namespace mh3u::ppc {
 
@@ -77,6 +86,32 @@ extern void (*import_trace_hook)(const char* qualified_name);
 
 // tw/twi whose condition holds (recomp/support/unimplemented.cpp): report and stop.
 [[noreturn]] void trap(uint32_t pc);
+
+// ---- patched code (cheats) ------------------------------------------------------------------------------
+// The recompiled functions are fixed at build time, so a write to an instruction in guest memory changes nothing on
+// its own. Cheats (runtime/cheats) do exactly that: they patch instructions and add code in caves. For each function
+// whose instructions differ from the executable, the cheat engine sets a flag; every emitted function checks it on
+// entry (only while at least one is set: one relaxed load otherwise) and, when set, runs its guest code from memory
+// through the interpreter instead (recomp/support/interpreter.cpp). Calls out of interpreted code go back to the
+// recompiled functions (or to the interpreter for patched ones and for code caves, which are not functions).
+extern std::atomic<uint32_t> g_patched_functions;  // number of entries flagged
+bool function_patched(uint32_t entry);
+void set_function_patched(uint32_t entry, bool patched);
+// The recompiled function at a guest address (generated table, imports, register_indirect), or null. No reporting.
+GuestFunction lookup_function(uint32_t addr);
+// Runs guest code from memory starting at `entry`, like a call: it returns at the first taken bclr (ABI-conforming
+// code, the emitter's assumption too). Semantics mirror the emitter's per instruction (recomp/src/emitter.cpp).
+void interpret(Context& ctx, uint8_t* base, uint32_t entry);
+// Whether interpret() can run this instruction word (for warnings about patched code it would stop at).
+bool interpretable(uint32_t word);
+// b/bl sites whose encoded target is meaningless (Cafe OS import calls: the stubs are out of branch range; $UNDEF
+// weak symbols: 0). site -> the address to call instead (an import stub, found in the import table, or 0).
+void set_interpreter_branch_targets(const uint32_t* sites, const uint32_t* targets, size_t count);
+// Body ranges of every recompiled function, sorted by start (generated function_table.cpp): a patched word belongs
+// to the function(s) whose range holds it.
+struct FunctionRange {
+    uint32_t start, end, entry;  // [start, end)
+};
 
 // ---- big-endian guest memory ---------------------------------------------------------------------------
 inline uint8_t ld8(const uint8_t* base, uint32_t a) { return base[a]; }

@@ -20,6 +20,7 @@ int main(int argc, char** argv) {
     }
     out << "PPC_FUNC(" << selftest::kTestImport << ");\n\n";
     mh3u::recomp::EmitEnv env;
+    env.patch_hook = true;  // as for the game (interp_selftest patches a function and checks it is interpreted)
     env.is_entry = [&](uint32_t a) { return entries.count(a) != 0; };
     env.import_call = [](uint32_t site) {
         return site == selftest::kImportCall ? std::string(selftest::kTestImport) : std::string();
