@@ -39,6 +39,11 @@ shaderc and FFmpeg are kept in `~/.cache/cha-cha-tools/android`. Then the recomp
 of `recomp_emit`), the game code is compiled for arm64 (as long as the Linux build; `JOBS` limits the parallel
 compilers), and the APK is put together without Gradle: `aapt2`, `javac`, `d8`, `zipalign` and `apksigner`.
 
+The build folder is `~/cha-cha-android-build` (pass another as the last argument). A build folder belongs to the
+checkout that first used it: when that one was made from another checkout, this one builds in
+`~/cha-cha-android-build-<checkout folder name>` and says so, instead of stopping on CMake's "does not match the
+source used to generate cache".
+
 **Signing.** The APK is signed with a key made on your PC the first time (`~/.cache/cha-cha-tools/android/debug.keystore`).
 Keep that file: an APK signed with another key won't install over this one, so you would have to uninstall first.
 
@@ -99,7 +104,7 @@ The MODS buttons that open folders say where the folder is instead (Android has 
 - `log.txt` in the data folder has everything the PC version prints to its console: Vulkan device, shader
   translation, `cheats:` lines, crashes with the faulting address.
 - `adb logcat -s SDL SDL/APP DEBUG` shows SDL's messages and native crash reports.
-- To symbolise a native crash, use `~/cha-cha-android-build/android/runtime/boot/libmain.so` (the APK's copy is
+- To symbolise a native crash, use `android/runtime/boot/libmain.so` in the build folder (the APK's copy is
   stripped).
 
 ## How it is built (for working on it)

@@ -227,9 +227,11 @@ scripts/package-appimage.sh                         # build/release/Cha-Cha-<ver
   `mlc01/usr/title/0005000e/10118300/code/` in a Cemu install). Either way it is checked against the US v32
   executable and copied to `extracted/0005000e10118300_v32/code/MH3G_Cafe_US.elf`, so later builds need neither
   option. The EU and JP releases won't work: the code, and the cheat addresses, are the US v32 executable's.
-- The build dir defaults to `~/cha-cha-build`. The generated game code takes a while to compile and about 1-2 GB of
-  memory per compiler: `JOBS=4` limits the parallel compilers (the default follows the free memory). `--tests` also
-  builds and runs the tests.
+- The build dir defaults to `~/cha-cha-build` (pass another as the last argument). A build folder belongs to the
+  checkout that first used it, so when `~/cha-cha-build` is another checkout's (Cha-Cha and Cha-Cha-Enhanced side by
+  side), this one builds in `~/cha-cha-build-<checkout folder name>` and says so. The generated game code takes a
+  while to compile and about 1-2 GB of memory per compiler: `JOBS=4` limits the parallel compilers (the default
+  follows the free memory). `--tests` also builds and runs the tests.
 - shaderc comes from the distribution; the LunarG Vulkan SDK in `/opt/vulkan/<version>/x86_64` (or `$VULKAN_SDK`) is
   used instead when present.
 - Run `~/cha-cha-build/runtime/boot/Cha-Cha`, or the AppImage: `chmod +x` it, and on a Steam Deck add it to Steam as a
