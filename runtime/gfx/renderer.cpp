@@ -431,6 +431,7 @@ struct Image {
     std::unique_ptr<Image> snapshot;     // copy for draws that sample their own render target
     std::unique_ptr<Image> replacement;  // texture pack image sampled instead (replace_texture())
     uint8_t filter = 0;                  // texpack::Filter from a pack's textures.ini [filtering], replaced or not
+    bool recheck = false;                // upload and look it up again at its next use (packs or dumping changed)
     uint64_t uploaded_frame = ~0ull;     // last upload: a texture re-uploaded every frame is not looked up in packs
     // bumped by transition() into a writable layout (every render, clear, copy or upload goes through one);
     // depth_alias is refreshed only when this changed since its last copy
@@ -1582,8 +1583,9 @@ Image* VkRenderer::texture(const TextureBinding& t, uint32_t sampler_type) {
             h = hash_words(base_ + s.image, image_bytes);
             if (mip_bytes) h ^= hash_words(base_ + mips, mip_bytes) * 31;
         }
-        if (h != img->hash || img->layout == VK_IMAGE_LAYOUT_UNDEFINED) {
+        if (h != img->hash || img->layout == VK_IMAGE_LAYOUT_UNDEFINED || img->recheck) {
             img->hash = h;
+            img->recheck = false;
             // packs replace plain 2D textures; one re-uploaded in consecutive frames is CPU-animated: not looked up
             const bool dynamic = img->uploaded_frame + 1 == frame_;
             const bool lookup = (!packs_.empty() || dumping_) && type == VK_IMAGE_TYPE_2D && !cube && !dynamic;
@@ -3220,13 +3222,13 @@ Renderer::Frame VkRenderer::end_frame() {
         for (auto& [k, t] : textures_) {
             if (t->replacement) fc().garbage.push_back(std::move(t->replacement));
             t->filter = 0;
-            t->hash ^= 1;
+            t->recheck = true;  // (changing the hash is not enough: unwritten memory is not hashed again)
         }
     }
     if (want_dump_ != dumping_) {
         dumping_ = want_dump_;
-        if (dumping_)  // textures already cached are dumped at their next use (a changed hash re-uploads them)
-            for (auto& [k, t] : textures_) t->hash ^= 1;
+        if (dumping_)  // textures already cached are dumped at their next use (re-uploaded then)
+            for (auto& [k, t] : textures_) t->recheck = true;
     }
     scene_color_ = scene_depth_ = 0;
     scene_done_ = false;
