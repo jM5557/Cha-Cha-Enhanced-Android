@@ -2,7 +2,8 @@
 # Builds Cha-Cha for Linux (docs/linux.md): on a Linux machine (Arch, Ubuntu / Debian, Fedora...), in a distrobox on
 # SteamOS, or from WSL2 on the Windows checkout.
 #
-# Usage: scripts/build-linux.sh [--rpx FILE | --wua FILE] [--tests] [build dir]   (default ~/cha-cha-build)
+# Usage: scripts/build-linux.sh [--rpx FILE | --wua FILE] [--tests] [build dir]
+#   (default ~/cha-cha-build, or ~/cha-cha-build-<checkout folder> when that one is another checkout's)
 #   --rpx FILE   your US v32 executable (MH3G_Cafe_US.rpx from the update, title 0005000E10118300)
 #   --wua FILE   your .wua dump: the executable is taken out of it (ZArchive is built on first use)
 #   --tests      also build everything and run the tests
@@ -16,16 +17,16 @@
 # JOBS limits the parallel compilers (the generated game code needs about 1-2 GB of memory per compiler).
 set -euo pipefail
 src="$(cd "$(dirname "$0")/.." && pwd)"
-build="$HOME/cha-cha-build"
+given=""
 rpx="" wua="" tests=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --rpx) rpx="${2:?--rpx needs a file}"; shift 2 ;;
         --wua) wua="${2:?--wua needs a file}"; shift 2 ;;
         --tests) tests=1; shift ;;
-        -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '/^set -euo pipefail/q;2,$p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "unknown option $1 (see --help)" >&2; exit 2 ;;
-        *) build="$1"; shift ;;
+        *) given="$1"; shift ;;
     esac
 done
 die() { echo "build-linux: $*" >&2; exit 1; }
@@ -107,6 +108,10 @@ fi
 [ -f "$target" ] || die "the game's executable is missing at $target
 Pass --rpx <MH3G_Cafe_US.rpx> or --wua <your dump.wua> (US game with update v32). Only this one file is needed
 to build; the rest of the game is chosen when Cha-Cha starts."
+
+# ---- build folder --------------------------------------------------------------------------------------------------
+. "$src/scripts/lib/build-dir.sh"
+mh3u_build_dir "$HOME/cha-cha-build" "$given" ".:$src"
 
 # ---- build ---------------------------------------------------------------------------------------------------------
 if [ -z "${JOBS:-}" ]; then  # about 2 GB of memory per compiler, at most one per core
