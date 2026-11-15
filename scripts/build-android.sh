@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds Cha-Cha for Android (arm64) as an APK (docs/android.md), on Linux (Arch, Ubuntu / Debian, Fedora...).
 #
-# Usage: scripts/build-android.sh [--rpx FILE | --wua FILE] [--install] [build dir]   (default ~/cha-cha-android-build)
+# Usage: scripts/build-android.sh [--rpx FILE | --wua FILE] [--install] [build dir]
+#   (default ~/cha-cha-android-build, or ~/cha-cha-android-build-<checkout folder> when that one is another checkout's)
 #   --rpx FILE   your US v32 executable (MH3G_Cafe_US.rpx from the update, title 0005000E10118300)
 #   --wua FILE   your .wua dump: the executable is taken out of it
 #   --install    install the APK on the phone connected over USB (adb, USB debugging on)
@@ -16,16 +17,16 @@
 # Environment: ANDROID_HOME, ANDROID_NDK_HOME (a specific NDK), APP_ID (default org.chacha.mh3u), JOBS.
 set -euo pipefail
 src="$(cd "$(dirname "$0")/.." && pwd)"
-build="$HOME/cha-cha-android-build"
+given=""
 rpx="" wua="" install=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --rpx) rpx="${2:?--rpx needs a file}"; shift 2 ;;
         --wua) wua="${2:?--wua needs a file}"; shift 2 ;;
         --install) install=1; shift ;;
-        -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '/^set -euo pipefail/q;2,$p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "unknown option $1 (see --help)" >&2; exit 2 ;;
-        *) build="$1"; shift ;;
+        *) given="$1"; shift ;;
     esac
 done
 die() { echo "build-android: $*" >&2; exit 1; }
@@ -40,6 +41,8 @@ shaderc_tag=v2026.3
 ffmpeg_tag=n7.1
 cmdline_tools_zip="${CMDLINE_TOOLS_URL:-https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip}"
 cache="$HOME/.cache/cha-cha-tools/android"
+. "$src/scripts/lib/build-dir.sh"
+mh3u_build_dir "$HOME/cha-cha-android-build" "$given" "android:$src" "host-tools:$src/recomp"
 mkdir -p "$cache" "$build"
 
 # ---- tools ---------------------------------------------------------------------------------------------------------
