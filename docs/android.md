@@ -42,8 +42,9 @@ The APK lands in `build/release/Cha-Cha-<version>-arm64.apk`. The first build fe
 - **shaderc** (v2026.3, with its glslang / SPIRV-Tools), from GitHub. It translates the game's shaders on the phone
   at the first start.
 - **FFmpeg** (n7.1, the H.264 decoder only), from GitHub, for the game's movies.
+- **Vulkan-Headers** (v1.4.363), from GitHub: the NDK's own Vulkan headers are older than the renderer's.
 
-shaderc and FFmpeg are kept in `~/.cache/cha-cha-tools/android`. Then the recompiler runs on your PC (a host build
+shaderc, FFmpeg and the headers are kept in `~/.cache/cha-cha-tools/android`. Then the recompiler runs on your PC (a host build
 of `recomp_emit`), the game code is compiled for arm64 (as long as the Linux build; `JOBS` limits the parallel
 compilers), and the APK is put together without Gradle: `aapt2`, `javac`, `d8`, `zipalign` and `apksigner`.
 

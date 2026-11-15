@@ -39,6 +39,7 @@ build_tools=35.0.0
 app_id="${APP_ID:-org.chacha.mh3u}"
 shaderc_tag=v2026.3
 ffmpeg_tag=n7.1
+vkheaders_tag=v1.4.363  # the NDK's Vulkan headers are older than the renderer's (as Cha-Cha 0.2's own Android build)
 cmdline_tools_zip="${CMDLINE_TOOLS_URL:-https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip}"
 cache="$HOME/.cache/cha-cha-tools/android"
 . "$src/scripts/lib/build-dir.sh"
@@ -111,6 +112,13 @@ if [ ! -f "$shaderc/.synced" ]; then
     touch "$shaderc/.synced"
 fi
 
+step "Vulkan headers ($vkheaders_tag)"
+vkheaders="$cache/Vulkan-Headers-$vkheaders_tag"
+if [ ! -f "$vkheaders/include/vulkan/vulkan_core.h" ]; then
+    rm -rf "$vkheaders"
+    git clone -q --depth 1 --branch "$vkheaders_tag" https://github.com/KhronosGroup/Vulkan-Headers.git "$vkheaders"
+fi
+
 step "FFmpeg ($ffmpeg_tag, H.264 decoder only) for Android"
 ffmpeg="$cache/ffmpeg-$ffmpeg_tag-api$api-ndk$ndk_major"
 if [ ! -f "$ffmpeg/lib/libavcodec.a" ]; then
@@ -146,7 +154,8 @@ env -u VULKAN_SDK cmake -S "$src" -B "$build/android" -G Ninja -DCMAKE_BUILD_TYP
     -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a \
     -DANDROID_PLATFORM="android-$api" -DANDROID_STL=c++_static \
     -DMH3U_HOST_TOOLS="$build/host-tools" -DMH3U_RECOMP_OUT="$build/recomp-out" \
-    -DMH3U_SHADERC_SOURCE="$shaderc" -DMH3U_FFMPEG_DIR="$ffmpeg"
+    -DMH3U_SHADERC_SOURCE="$shaderc" -DMH3U_FFMPEG_DIR="$ffmpeg" \
+    -DVulkan_INCLUDE_DIR="$vkheaders/include" -DVulkan_LIBRARY="$tc/sysroot/usr/lib/aarch64-linux-android/$api/libvulkan.so"
 echo "building with $JOBS parallel jobs"
 cmake --build "$build/android" --target mh3u -j "$JOBS"
 libmain="$build/android/runtime/boot/libmain.so"
